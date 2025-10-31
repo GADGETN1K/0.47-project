@@ -3,7 +3,6 @@
 #include <samp_bcrypt>
 #include <sscanf2>
 // others
-forward SaveAccount(playerid);
 #pragma warning disable 239
 //
 // colors
@@ -12,8 +11,8 @@ forward SaveAccount(playerid);
 //
 // pinfo
 enum pInfo {
-    pMoney,
-    pScore
+    pPass[24],
+    pMoney
 };
 
 new PlayerInfo[MAX_PLAYERS][pInfo];
@@ -33,23 +32,12 @@ public OnPlayerRequestClass(playerid, classid)
 }
 public OnPlayerConnect(playerid)
 {
-    new PlayerNick[500]; // Для админки
-    GetPlayerName(playerid,PlayerNick,sizeof(PlayerNick)); // Узнаем ник игрока
-    new users[128];
-    format(users,sizeof(users),"users/%s.ini",PlayerNick); // Создаем аккаунт
-    if(!fexist(users))   // Если такого ника нет,    то выводим окно с регистрацией
-	{
-		ShowPlayerDialog(playerid,7000,DIALOG_STYLE_INPUT, "Регистрация", "Введите пароль:", "Войти", "");
-	}
-	else  // Если игрок найден, то авторизация
-	{
-		ShowPlayerDialog(playerid,7002,DIALOG_STYLE_INPUT, "Авторизация", "Введите свой пароль:", "Войти", "");
-	}
-	PlayerInfo[playerid][pMoney] = 0; // При регистрации 0 денег
+	Account(playerid, 0, "");
 	return 1;
 }
 public OnPlayerDisconnect(playerid, reason)
 {
+	Account(playerid, 3, "");
 	return 1;
 }
 public OnPlayerSpawn(playerid)
@@ -191,121 +179,81 @@ public OnVehicleStreamOut(vehicleid, forplayerid)
 }
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 {
-    new PlayerNick[24];
-    GetPlayerName(playerid, PlayerNick, sizeof(PlayerNick));
-    new userFile[128];
-    format(userFile, sizeof(userFile), "users/%s.ini", PlayerNick);
-
-    if(dialogid == 7000) // регистрация
-    {
-        if(!strlen(inputtext))
-        {
-            ShowPlayerDialog(playerid, 7000, DIALOG_STYLE_INPUT, "Регистрация", "Введите пароль:", "Войти", "");
-            return 1;
-        }
-
-        if(response)
-        {
-            if(fexist(userFile))
-            {
-                ShowPlayerDialog(playerid, 7002, DIALOG_STYLE_INPUT, "Авторизация", "Введите пароль:", "Войти", "");
-                return 1;
-            }
-
-            new iniFile = ini_createFile(userFile);
-
-            if(iniFile < 0)
-            {
-                iniFile = ini_openFile(userFile);
-                if(iniFile <= 0)
-                {
-                    SendClientMessage(playerid, 0xFF0000AA, "Ошибка создания аккаунта.");
-                    return 1;
-                }
-            }
-
-            ini_setString(iniFile, "Password", inputtext);
-            ini_setInteger(iniFile, "Money", 5000);
-            ini_setInteger(iniFile, "Score", 0);
-
-            ini_closeFile(iniFile);
-
-            SendClientMessage(playerid, 0x21DD00FF, "Вы успешно зарегистрировались.");
-            ShowPlayerDialog(playerid, 7002, DIALOG_STYLE_INPUT, "Авторизация", "Введите пароль:", "Войти", "");
-        }
-        else // отмена регистрации (Esc)
-        {
-            ShowPlayerDialog(playerid, 7000, DIALOG_STYLE_INPUT, "Регистрация", "Введите пароль:", "Войти", "");
-        }
-    }
-
-    else if(dialogid == 7002) // авторизация
-    {
-        if(!strlen(inputtext))
-        {
-            ShowPlayerDialog(playerid, 7002, DIALOG_STYLE_INPUT, "Авторизация", "Введите пароль:", "Войти", "");
-            return 1;
-        }
-
-        if(response)
-        {
-            if(IsPlayerNPC(playerid)) return 1;
-
-            new iniFile = ini_openFile(userFile);
-            if(iniFile <= 0)
-            {
-                SendClientMessage(playerid, 0xFF0000AA, "Ошибка открытия аккаунта.");
-                return 1;
-            }
-
-            new storedPassword[64];
-            ini_getString(iniFile, "Password", storedPassword);
-            if(!strcmp(inputtext, storedPassword, true))
-            {
-                ini_getInteger(iniFile, "Money", PlayerInfo[playerid][pMoney]);
-                ini_getInteger(iniFile, "Score", PlayerInfo[playerid][pScore]);
-
-                SetPlayerScore(playerid, PlayerInfo[playerid][pScore]);
-                GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
-
-                SendClientMessage(playerid, 0x21DD00FF, "Вы успешно вошли в свой аккаунт.");
-                ini_closeFile(iniFile);
-                return 1;
-            }
-            else
-            {
-                SendClientMessage(playerid, 0xF60000AA, "Неверный пароль. Попробуйте снова.");
-                ShowPlayerDialog(playerid, 7002, DIALOG_STYLE_INPUT, "Авторизация", "Введите пароль:", "Войти", "");
-                ini_closeFile(iniFile);
-                return 1;
-            }
-        }
-        else // отмена авторизации (Esc)
-        {
-            ShowPlayerDialog(playerid, 7002, DIALOG_STYLE_INPUT, "Авторизация", "Введите пароль:", "Войти", "");
-            return 0;
-        }
-    }
-    return 1;
+	switch(dialogid)
+	{
+	    case 0:
+	    {
+	        if(!response) return Kick(playerid);
+	        if(strlen(inputtext) <= 3 || strlen(inputtext) > 24) return ShowPlayerDialog(playerid, 0, 3, "Регистрация", "Пароль должен состоять не меньше 3 и не больше 24 символов.", "Ок", "Отмена");
+			new tmp[24];
+			format(tmp, sizeof(tmp), "%s", inputtext);
+			return Account(playerid, 1, tmp);
+	    }
+	    case 1:
+	    {
+	        if(!response) return Kick(playerid);
+	        if(strlen(inputtext) <= 3 || strlen(inputtext) > 24) return ShowPlayerDialog(playerid, 1, 3, "Авторизация", "Пароль должен состоять не меньше 3 и не больше 24 символов.", "Ок", "Отмена");
+			new tmp[24];
+			format(tmp, sizeof(tmp), "%s", inputtext);
+			return Account(playerid, 2, tmp);
+	    }
+	}
+	return 1;
 }
-
-public SaveAccount(playerid)
+forward Account(playerid, mode, pass[24]);
+public Account(playerid, mode, pass[24])
 {
-    if(!IsPlayerConnected(playerid)) return 1;
-
-    new PlayerNick[24];
-    GetPlayerName(playerid, PlayerNick, sizeof(PlayerNick));
-
-    new userFile[128];
-    format(userFile, sizeof(userFile), "users/%s.ini", PlayerNick);
-
-    new iniFile = ini_openFile(userFile);
-    if(iniFile <= 0) return 1;
-
-    ini_setInteger(iniFile, "Money", GetPlayerMoney(playerid));
-    ini_setInteger(iniFile, "Score", GetPlayerScore(playerid));
-
-    ini_closeFile(iniFile);
-
-    return 1;
+	new fn[MAX_PLAYER_NAME+5];
+	GetPlayerName(playerid, fn, sizeof(fn));
+	format(fn, sizeof(fn), "users/%s.ini", fn);
+	new INI = ini_openFile(fn);
+	if(INI == INI_OK)
+	{
+	    switch(mode)
+	    {
+	        case 1:
+	        {
+	            ini_setString(INI, "Password", pass);
+	            ini_closeFile(INI);
+	            return ShowPlayerDialog(playerid, 1, 3, "Авторизация", "Введите пароль:", "Ок", "Отмена");
+	        }
+			case 2:
+			{
+			    new tmp[24];
+			    ini_getString(INI, "Password", tmp);
+			    if(strcmp(tmp,pass,false,24) == 0)
+			    {
+           			PlayerInfo[playerid][pPass] = tmp;
+			        ini_getInteger(INI, "Money", PlayerInfo[playerid][pMoney]);
+			        ini_closeFile(INI);
+			        return SpawnPlayer(playerid);
+			    }
+			    else return ShowPlayerDialog(playerid, 1, 3, "Авторизация", "Введите пароль:", "Ок", "Отмена");
+			}
+			case 0:
+			{
+			    ini_closeFile(INI);
+			    return ShowPlayerDialog(playerid, 1, 3, "Авторизация", "Введите пароль:", "Ок", "Отмена");
+			}
+			case 3:
+			{
+			    ini_setString(INI, "Password", PlayerInfo[playerid][pPass]);
+			    ini_setInteger(INI, "Money", PlayerInfo[playerid][pMoney]);
+			    ini_closeFile(INI);
+			}
+	    }
+	}
+	else
+	{
+	    INI = ini_createFile(fn);
+	    if(INI == INI_OK)
+		{
+		    ini_setString(INI, "Password", "");
+		    ini_setInteger(INI, "Money", 1000);
+		    ini_closeFile(INI);
+		    return ShowPlayerDialog(playerid, 0, 3, "Регистрация", "Введите пароль:", "Ок", "Отмена");
+		}
+		else return Account(playerid, 0, "");
+	}
+	return 1;
 }
