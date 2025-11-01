@@ -12,22 +12,30 @@
 new PlayerSalt[MAX_PLAYERS][SALT_SIZE];
 new PlayerPasswordHash[MAX_PLAYERS][HASH_SIZE];
 new PlayerMoney[MAX_PLAYERS];
+new PlayerLevel[MAX_PLAYERS];
 new bool:IsPlayerLoggedIn[MAX_PLAYERS];
 new const Float:VIRTUAL_SPAWN[4] = {1043.1250,1016.8333,11.0000,0.0000};
 new const Float:NORMAL_SPAWN[4] = {1492.0560,-1837.0934,13.5469,238.1122};
-//
+#define INFO_PICKUP_X 1032.4861
+#define INFO_PICKUP_Y 1018.0731
+#define INFO_PICKUP_Z 11.0000
+#define INFO_PICKUP_n_X 1516.9457
+#define INFO_PICKUP_n_Y -1834.0599
+#define INFO_PICKUP_n_Z 14.0392
+new infoPickup[2];
+#define DIALOG_INFO 1000
+#define DIALOG_INFO_2 1001
 // colors
 #define COLOR_RED 0xFF0000AA
 #define COLOR_GREEN 0x00FF00AA
-//
-// pinfo
-//
 main() {}
 public OnGameModeInit()
 {
-    SendRconCommand("hostname 0.47 Project v0.0.1a (alpha)");
+	SendRconCommand("hostname 0.47 Project v0.0.1a (alpha)");
 	SetGameModeText(":: test ::");
-	return 1;
+    infoPickup[0] = CreatePickup(1274, 3, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z, 9999);
+    infoPickup[1] = CreatePickup(1274, 3, INFO_PICKUP_n_X, INFO_PICKUP_n_Y, INFO_PICKUP_n_Z, 0);
+    Create3DTextLabel("Информация", 0xFFFFFFFF, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z + 1.0, 20.0, 9999, 0);
 }
 public OnGameModeExit()
 {
@@ -89,7 +97,12 @@ public OnVehicleDeath(vehicleid, killerid)
 }
 public OnPlayerText(playerid, text[])
 {
-	return 1;
+    if (!IsPlayerLoggedIn[playerid])
+    {
+        SendClientMessage(playerid, 0xFF0000FF, "Вы не можете писать в чат, пока не войдёте в аккаунт.");
+        return 0; // блокируем сообщение в чат
+    }
+    return 1; // разрешаем сообщение
 }
 public OnPlayerCommandText(playerid, cmdtext[])
 {
@@ -167,9 +180,18 @@ public OnPlayerObjectMoved(playerid, objectid)
 
 public OnPlayerPickUpPickup(playerid, pickupid)
 {
-	return 1;
+    if (pickupid == infoPickup[0])
+    {
+        ShowPlayerDialog(playerid, DIALOG_INFO, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nПроект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\nИсходный код: https://github.com/GADGETNiK/0.47-project\r\nИгровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\nВы сейчас находитесь в виртуальном мире, чтобы выйти, нужно зарегистрироваться или авторизоваться.\r\nЕсли аккаунта нет - /register, если есть - /login\r\n\r\nНажмите ОК для закрытия.", "ОК", "");
+        return 1;
+    }
+    if (pickupid == infoPickup[1])
+    {
+        ShowPlayerDialog(playerid, DIALOG_INFO_2, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nПроект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\nИсходный код: https://github.com/GADGETNiK/0.47-project\r\nИгровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\nВы сейчас находитесь в обычном мире, можете начинать играть.\r\n\r\nНажмите ОК для закрытия.", "ОК", "");
+        return 1;
+    }
+    return 0;
 }
-
 public OnVehicleMod(playerid, vehicleid, componentid)
 {
 	return 1;
@@ -226,15 +248,14 @@ public OnVehicleStreamOut(vehicleid, forplayerid)
 }
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 {
-	return 1;
+    if (dialogid == DIALOG_INFO || dialogid == DIALOG_INFO_2) return 1;
+    return 0;
 }
 stock bool:RegisterPlayer(playerid, password[])
 {
     new fn[64], INI;
     GetPlayerName(playerid, fn, sizeof(fn));
     format(fn, sizeof(fn), "users/%s.ini", fn);
-
-    // Проверка: если файл профиля уже существует, не даем регистрироваться снова
     INI = ini_openFile(fn);
     if (INI >= 0)
     {
@@ -242,15 +263,12 @@ stock bool:RegisterPlayer(playerid, password[])
         SendClientMessage(playerid, 0xFFFF0000, "Аккаунт уже существует. Используйте /login.");
         return false;
     }
-
-    // Создаём новый профиль
     INI = ini_createFile(fn, "");
     if (INI < 0)
     {
         SendClientMessage(playerid, 0xFF0000FF, "Ошибка создания файла профиля");
         return false;
     }
-
     new salt[SALT_SIZE];
     format(salt, sizeof(salt), "salt_%d", playerid);
     new hash[HASH_SIZE];
@@ -258,51 +276,44 @@ stock bool:RegisterPlayer(playerid, password[])
     ini_setString(INI, "Salt", salt);
     ini_setString(INI, "PasswordHash", hash);
     ini_setInteger(INI, "Money", 1000);
+    ini_setInteger(INI, "Level", 1);
     ini_closeFile(INI);
-
-    // Сохраняем в память
     new i;
     for (i = 0; i < SALT_SIZE - 1 && salt[i] != '\0'; i++) PlayerSalt[playerid][i] = salt[i];
     PlayerSalt[playerid][i] = '\0';
-
     for (i = 0; i < HASH_SIZE - 1 && hash[i] != '\0'; i++) PlayerPasswordHash[playerid][i] = hash[i];
     PlayerPasswordHash[playerid][i] = '\0';
-
     PlayerMoney[playerid] = 1000;
-
+    PlayerLevel[playerid] = 1;
+    GivePlayerMoney(playerid, PlayerMoney[playerid]);
+    SetPlayerScore(playerid, PlayerLevel[playerid]);
     return true;
 }
-// Аутентификация
 stock bool:AuthenticatePlayer(playerid, password[])
 {
     new fn[64], INI;
     GetPlayerName(playerid, fn, sizeof(fn));
     format(fn, sizeof(fn), "users/%s.ini", fn);
-
     INI = ini_openFile(fn);
     if (INI < 0)
     {
         SendClientMessage(playerid, 0xFF0000FF, "Профиль не найден, зарегистрируйтесь");
         return false;
     }
-
-    // загрузка соли и хеша
     if (PlayerSalt[playerid][0]=='\0' || PlayerPasswordHash[playerid][0]=='\0')
     {
         ini_getString(INI, "Salt", PlayerSalt[playerid]);
         ini_getString(INI, "PasswordHash", PlayerPasswordHash[playerid]);
         new moneyVal;
-		if (ini_getInteger(INI, "Money", moneyVal) == 0)
-		{
-		    PlayerMoney[playerid] = moneyVal;
-		}
-		else
-		{
-		    PlayerMoney[playerid] = 0;
-		}
+		if (ini_getInteger(INI, "Money", moneyVal) == 0) PlayerMoney[playerid] = moneyVal;
+		else PlayerMoney[playerid] = 0;
+        new levelVal;
+		if (ini_getInteger(INI, "Level", moneyVal) == 0) PlayerLevel[playerid] = levelVal;
+		else PlayerLevel[playerid] = 0;
     }
     ini_closeFile(INI);
-
+	GivePlayerMoney(playerid, PlayerMoney[playerid]);
+	SetPlayerScore(playerid, PlayerLevel[playerid]);
     new computedHash[HASH_SIZE];
     SHA256_PassHash(password, PlayerSalt[playerid], computedHash, sizeof(computedHash));
     return (strcmp(computedHash, PlayerPasswordHash[playerid], false)==0);
@@ -314,22 +325,14 @@ CMD:register(playerid, params[])
         SendClientMessage(playerid, 0xFFFF0000, "Использование: /register <пароль>");
         return 1;
     }
-
     new password[MAX_PASS_LENGTH + 1];
     strmid(password, params, 0, sizeof(password) - 1);
-
     if (strlen(password) < 4)
     {
         SendClientMessage(playerid, 0xFFFF0000, "Пароль должен содержать минимум 4 символа.");
         return 1;
     }
-
-    if (!RegisterPlayer(playerid, password))
-    {
-        // Сообщение уже выводится внутри RegisterPlayer
-        return 1;
-    }
-
+    if (!RegisterPlayer(playerid, password)) return 1;
     IsPlayerLoggedIn[playerid] = true;
     SendClientMessage(playerid, 0xFF00FF00, "Регистрация успешна! Вы вошли.");
     OnPlayerRequestClass(playerid, 0);
@@ -343,16 +346,13 @@ CMD:login(playerid, params[])
         SendClientMessage(playerid, 0xFFFF0000, "Вы уже вошли в аккаунт.");
         return 1;
     }
-
     if (strlen(params) == 0)
     {
         SendClientMessage(playerid, 0xFFFF0000, "Используйте: /login <пароль>");
         return 1;
     }
-
     new password[MAX_PASS_LENGTH + 1];
     strmid(password, params, 0, sizeof(password) - 1);
-
     if (AuthenticatePlayer(playerid, password))
     {
         IsPlayerLoggedIn[playerid] = true;
@@ -363,39 +363,30 @@ CMD:login(playerid, params[])
     {
         SendClientMessage(playerid, 0xFFFF0000, "Неверный пароль.");
     }
-
     return 1;
 }
 CMD:givevehid(playerid, params[])
 {
     new modelid;
-
     if (sscanf(params, "d", modelid))
     {
         SendClientMessage(playerid, 0xFF0000FF, "Использование: /givevehid [ID модели транспорта]");
         return 0;
     }
-
     if (modelid < 400 || modelid > 611)
     {
         SendClientMessage(playerid, 0xFF0000FF, "Неверный ID модели транспорта.");
         return 0;
     }
-
     new Float:x, Float:y, Float:z;
     GetPlayerPos(playerid, x, y, z);
-
     new vehicleid = CreateVehicle(modelid, x + 2.0, y, z, 0.0, 100, 0, -1);
-
     if (vehicleid == INVALID_VEHICLE_ID)
     {
         SendClientMessage(playerid, 0xFF0000FF, "Ошибка при создании транспорта.");
         return 0;
     }
-
-    // Опционально посадить игрока в транспорт
     PutPlayerInVehicle(playerid, vehicleid, -1);
-
     SendClientMessage(playerid, 0x00FF00FF, "Транспорт создан и выдан вам.");
     return 1;
 }
