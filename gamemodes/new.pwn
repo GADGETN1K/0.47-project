@@ -4,17 +4,38 @@
 #include <sscanf2>
 #include <streamer>
 #include <Pawn.CMD>
-// others
+///////////////////
 new MySQL:sampbd;
 #define MYSQL_HOST      "127.0.0.1"
 #define MYSQL_USER      "root"
 #define MYSQL_PASSWORD  "^Ws1@SJc7JJmtY"
 #define MYSQL_DATABASE  "047project"
-forward ReturnBike(playerid);
-#pragma warning disable 239
+///////////////////
+#define SCM             			SendClientMessage
 #define SALT_SIZE 16
 #define HASH_SIZE 65
 #define MAX_PASS_LENGTH 30
+#define LOCAL_CHAT_RADIUS 30.0
+#define INFO_PICKUP_X 1032.4861
+#define INFO_PICKUP_Y 1018.0731
+#define INFO_PICKUP_Z 11.0000
+#define INFO_PICKUP_n_X 1516.9457
+#define INFO_PICKUP_n_Y -1834.0599
+#define INFO_PICKUP_n_Z 14.0392
+#define DIALOG_INFO 1000
+#define DIALOG_INFO_2 1001
+#define DIALOG_RENT_BIKE 2000
+#define BIKE_MODEL 509
+#define RENT_DURATION 300000
+#define INVALID_TIMER -1
+#define GRUZ_BAG_X 2225.1597
+#define GRUZ_BAG_Y -2278.2952
+#define GRUZ_BAG_Z 14.7647
+#define CHECKPOINT_RADIUS 3.0
+///////////////////
+main() {}
+#pragma warning disable 239
+///////////////////
 new LoginPassword[MAX_PLAYERS][MAX_PASS_LENGTH + 1];
 enum pInfo
 {
@@ -24,38 +45,34 @@ enum pInfo
 	pPasswordHash[65],
 	pMoney,
 	pLevel,
-	pEXP
+	pEXP,
+	pSkin,
+	pAdmin
 }
 new PlayerInfo[MAX_PLAYERS][pInfo];
 new bool:IsPlayerLoggedIn[MAX_PLAYERS];
 new bool:IsPlayerRegistered[MAX_PLAYERS];
-#define LOCAL_CHAT_RADIUS 30.0
+////////////////////
 new const Float:VIRTUAL_SPAWN[4] = {1043.1250,1016.8333,11.0000,0.0000};
 new const Float:NORMAL_SPAWN[4] = {1492.0560,-1837.0934,13.5469,238.1122};
-#define INFO_PICKUP_X 1032.4861
-#define INFO_PICKUP_Y 1018.0731
-#define INFO_PICKUP_Z 11.0000
-#define INFO_PICKUP_n_X 1516.9457
-#define INFO_PICKUP_n_Y -1834.0599
-#define INFO_PICKUP_n_Z 14.0392
 new infoPickup[2];
-#define DIALOG_INFO 1000
-#define DIALOG_INFO_2 1001
-#define DIALOG_RENT_BIKE 2000
-#define BIKE_MODEL 509
-#define RENT_DURATION 300000 // 5 минут в миллисекундах
-#define INVALID_TIMER -1
 new bikePickup;
 new Float:BikePickupPos[3] = {1510.1011,-1849.7041,13.5469};
 new PlayerBike[MAX_PLAYERS];
-new PlayerBikeTimer[MAX_PLAYERS]; // ID таймера для возврата
-main() {}
+new PlayerBikeTimer[MAX_PLAYERS];
+new loadergruz;
+new Float:GruzDropPoints[3][3] = {
+    {2168.1172, -2262.8401, 13.3052},
+    {2158.4097, -2232.5789, 13.3071},
+    {2144.2583, -2254.5845, 13.2990}
+};
+////////////////////
 public OnGameModeInit()
 {
 	sampbd = mysql_connect(MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE);
 	EnableStuntBonusForAll(0);
 	DisableInteriorEnterExits();
-	SendRconCommand("hostname 0.47 Project v0.0.1b (alpha)");
+	SendRconCommand("hostname 0.47 Project v0.0.1c (alpha)");
 	SetGameModeText(":: test ::");
     infoPickup[0] = CreatePickup(18631, 2, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z, 9999);
     infoPickup[1] = CreatePickup(18631, 2, INFO_PICKUP_n_X, INFO_PICKUP_n_Y, INFO_PICKUP_n_Z, 0);
@@ -66,6 +83,7 @@ public OnGameModeInit()
         PlayerBike[i] = INVALID_VEHICLE_ID;
         PlayerBikeTimer[i] = INVALID_TIMER;
     }
+	loadergruz = CreatePickup(1275, 2, 2193.7202, -2251.5547, 13.5469, 0); // Пикап для переодевалки, устройства и увольнения грузчика
 }
 public OnGameModeExit()
 {
@@ -75,33 +93,19 @@ public OnGameModeExit()
 }
 public OnPlayerRequestClass(playerid, classid)
 {
-    new Float:x, Float:y, Float:z, Float:angle;
-    if (!IsPlayerLoggedIn[playerid])
-    {
-        x = VIRTUAL_SPAWN[0];
-        y = VIRTUAL_SPAWN[1];
-        z = VIRTUAL_SPAWN[2];
-        angle = VIRTUAL_SPAWN[3];
-        SetPlayerVirtualWorld(playerid, 9999);
-        SetSpawnInfo(playerid, classid, 3, x, y, z, angle, -1, -1, -1, -1, -1, -1);
-        SpawnPlayer(playerid);
-    }
-    else
-    {
-        x = NORMAL_SPAWN[0];
-        y = NORMAL_SPAWN[1];
-        z = NORMAL_SPAWN[2];
-        angle = NORMAL_SPAWN[3];
-        SetPlayerVirtualWorld(playerid, 0);
-        SetSpawnInfo(playerid, classid, 3, x, y, z, angle, -1, -1, -1, -1, -1, -1);
-        SpawnPlayer(playerid);
-    }
+    SetSpawnInfo(playerid, classid, 0, 0.0, 0.0, 0.0, 0.0, -1, -1, -1, -1, -1, -1);
+    SpawnPlayer(playerid);
     return 1;
 }
 public OnPlayerConnect(playerid)
 {
     IsPlayerLoggedIn[playerid] = false;
     IsPlayerRegistered[playerid] = false;
+	SetPlayerVirtualWorld(playerid, 9999);
+    // Устанавливаем виртуальный спавн и скин бомжа
+    SetPlayerPos(playerid, VIRTUAL_SPAWN[0], VIRTUAL_SPAWN[1], VIRTUAL_SPAWN[2]);
+    SetPlayerFacingAngle(playerid, VIRTUAL_SPAWN[3]);
+    SetPlayerSkin(playerid, 3);
     new player_name[MAX_PLAYER_NAME];
     GetPlayerName(playerid, player_name, sizeof(player_name));
     new query[256];
@@ -113,7 +117,6 @@ public OnPlayerConnect(playerid)
 }
 public OnPlayerDisconnect(playerid, reason)
 {
-    SaveAccount(playerid);
 	if (PlayerBike[playerid] != INVALID_VEHICLE_ID)
     {
         DestroyVehicle(PlayerBike[playerid]);
@@ -124,230 +127,13 @@ public OnPlayerDisconnect(playerid, reason)
             PlayerBikeTimer[playerid] = INVALID_TIMER;
         }
     }
-	return 1;
-}
-public OnPlayerSpawn(playerid)
-{
-    return 1;
-}
-public OnPlayerDeath(playerid, killerid, reason)
-{
-	return 1;
-}
-public OnVehicleSpawn(vehicleid)
-{
-	return 1;
-}
-public OnVehicleDeath(vehicleid, killerid)
-{
-	return 1;
-}
-public OnPlayerText(playerid, text[])
-{
-    if (!IsPlayerLoggedIn[playerid])
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете писать в чат, пока не войдёте в аккаунт.");
-        return 0; // блокируем сообщение в чат
-    }
-    new Float:x, Float:y, Float:z;
-    GetPlayerPos(playerid, x, y, z);
-
-    new count = GetMaxPlayers();
-    new target;
-
-    new msg[144];
-    GetPlayerName(playerid, msg, sizeof(msg));
-    format(msg, sizeof(msg), "%s: %s", msg, text);
-
-    for (target = 0; target < count; target++)
-    {
-        if (!IsPlayerConnected(target) || !IsPlayerLoggedIn[target])
-            continue;
-
-        new Float:tx, Float:ty, Float:tz;
-        GetPlayerPos(target, tx, ty, tz);
-
-        new Float:dist = floatsqroot((x - tx) * (x - tx) + (y - ty) * (y - ty) + (z - tz) * (z - tz));
-
-        if (dist <= LOCAL_CHAT_RADIUS)
-        {
-            SendClientMessage(target, 0xFFFFFFFF, msg);
-        }
-    }
-    return 0;
-}
-public OnPlayerCommandText(playerid, cmdtext[])
-{
-    if (!IsPlayerLoggedIn[playerid])
-    {
-        // Разрешаем команду, если начинается с /login или /register
-        if (cmdtext[0] == '/' && (
-            (cmdtext[1] == 'l' && cmdtext[2] == 'o' && cmdtext[3] == 'g' && cmdtext[4] == 'i' && cmdtext[5] == 'n') ||
-            (cmdtext[1] == 'r' && cmdtext[2] == 'e' && cmdtext[3] == 'g' && cmdtext[4] == 'i' && cmdtext[5] == 's' && cmdtext[6] == 't' && cmdtext[7] == 'e' && cmdtext[8] == 'r')
-            ))
-        {
-            return 0; // разрешить команду
-        }
-
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Сначала зарегистрируйтесь или войдите.");
-        return 1; // заблокировать остальные команды
-    }
-    return 0; // разрешить все команды для залогиненных
-}
-
-public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
-{
-    for (new i = 0; i < MAX_PLAYERS; i++)
-    {
-        if (i == playerid) continue;
-        if (PlayerBike[i] == vehicleid)
-        {
-            RemovePlayerFromVehicle(playerid);
-            ApplyAnimation(playerid, "PED", "WALK_STANDARD", 4.1, 1, 1, 1, 0, 0, 0);
-			ClearAnimations(playerid);
-            SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Этот велосипед арендован другим игроком.");
-
-            return 0;
-        }
-    }
-
-    if (PlayerBike[playerid] == vehicleid)
-    {
-        if (PlayerBikeTimer[playerid] != INVALID_TIMER)
-        {
-            KillTimer(PlayerBikeTimer[playerid]);
-            PlayerBikeTimer[playerid] = INVALID_TIMER;
-        }
-    }
-
-    return 1;
-}
-public OnPlayerExitVehicle(playerid, vehicleid)
-{
-    if (PlayerBike[playerid] == vehicleid)
-    {
-        if (PlayerBikeTimer[playerid] == INVALID_TIMER)
-        {
-            PlayerBikeTimer[playerid] = SetTimerEx("ReturnBike", RENT_DURATION, false, "i", playerid);
-        }
-    }
-    return 1;
-}
-public OnPlayerStateChange(playerid, newstate, oldstate)
-{
-	return 1;
-}
-public OnPlayerEnterCheckpoint(playerid)
-{
-    return 0;
-}
-public OnPlayerLeaveCheckpoint(playerid)
-{
-	return 1;
-}
-public OnPlayerEnterRaceCheckpoint(playerid)
-{
-	return 1;
-}
-public OnPlayerLeaveRaceCheckpoint(playerid)
-{
-	return 1;
-}
-public OnRconCommand(cmd[])
-{
-	return 1;
-}
-public OnPlayerRequestSpawn(playerid)
-{
-    return 1;
-}
-public OnObjectMoved(objectid)
-{
-	return 1;
-}
-public OnPlayerObjectMoved(playerid, objectid)
-{
-	return 1;
-}
-public OnPlayerPickUpPickup(playerid, pickupid)
-{
-    if (pickupid == infoPickup[0])
-    {
-        ShowPlayerDialog(playerid, DIALOG_INFO, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nПроект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\nИсходный код: https://github.com/GADGETNiK/0.47-project\r\nИгровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\nВы сейчас находитесь в виртуальном мире, чтобы выйти, нужно зарегистрироваться или авторизоваться.\r\nЕсли аккаунта нет - /register, если есть - /login\r\n\r\nНажмите ОК для закрытия.", "ОК", "");
-        return 1;
-    }
-    if (pickupid == infoPickup[1])
-    {
-        ShowPlayerDialog(playerid, DIALOG_INFO_2, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nПроект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\nИсходный код: https://github.com/GADGETNiK/0.47-project\r\nИгровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\nВы сейчас находитесь в обычном мире, можете начинать играть.\r\n\r\nНажмите ОК для закрытия.", "ОК", "");
-        return 1;
-    }
-    if (pickupid == bikePickup)
-    {
-        if (!IsPlayerLoggedIn[playerid])
-        {
-            SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Аренда велосипеда доступна только залогиненным.");
-            return 1;
-        }
-        if (PlayerBike[playerid] != INVALID_VEHICLE_ID)
-        {
-            SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Вы уже арендовали велосипед.");
-            return 1;
-        }
-        ShowPlayerDialog(playerid, DIALOG_RENT_BIKE, DIALOG_STYLE_MSGBOX, "Аренда велосипеда", "Хотите арендовать велосипед?\r\nСтоимость: бесплатно\r\nВНИМАНИЕ: Имеется таймер, если после выхода с велосипеда, вы не сядете за 5 минут простоя, то велосипед пропадёт.", "Арендовать", "Отмена");
-        return 1;
-    }
-    return 0;
-}
-public OnVehicleMod(playerid, vehicleid, componentid)
-{
-	return 1;
-}
-public OnVehiclePaintjob(playerid, vehicleid, paintjobid)
-{
-	return 1;
-}
-public OnVehicleRespray(playerid, vehicleid, color1, color2)
-{
-	return 1;
-}
-public OnPlayerSelectedMenuRow(playerid, row)
-{
-	return 1;
-}
-public OnPlayerExitedMenu(playerid)
-{
-	return 1;
-}
-public OnPlayerInteriorChange(playerid, newinteriorid, oldinteriorid)
-{
-	return 1;
-}
-public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
-{
-	return 1;
-}
-public OnRconLoginAttempt(ip[], password[], success)
-{
-	return 1;
-}
-public OnPlayerUpdate(playerid)
-{
-	return 1;
-}
-public OnPlayerStreamIn(playerid, forplayerid)
-{
-	return 1;
-}
-public OnPlayerStreamOut(playerid, forplayerid)
-{
-	return 1;
-}
-public OnVehicleStreamIn(vehicleid, forplayerid)
-{
-	return 1;
-}
-public OnVehicleStreamOut(vehicleid, forplayerid)
-{
+    DeletePVar(playerid, "gruzskin");
+    DeletePVar(playerid, "gruz_bag_taken");
+    DeletePVar(playerid, "loader_gruz");
+    LoginPassword[playerid][0] = '\0';
+    IsPlayerLoggedIn[playerid] = false;
+    IsPlayerRegistered[playerid] = false;
+    SaveAccount(playerid);
 	return 1;
 }
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
@@ -378,6 +164,339 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
     }
     return 0;
 }
+public OnPlayerText(playerid, text[])
+{
+    if (!IsPlayerLoggedIn[playerid])
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете писать в чат, пока не войдёте в аккаунт.");
+        return 0; // блокируем сообщение в чат
+    }
+    new Float:x, Float:y, Float:z;
+    GetPlayerPos(playerid, x, y, z);
+    new count = GetMaxPlayers();
+    new target;
+    new msg[144];
+    GetPlayerName(playerid, msg, sizeof(msg));
+    format(msg, sizeof(msg), "%s: %s", msg, text);
+    for (target = 0; target < count; target++)
+    {
+        if (!IsPlayerConnected(target) || !IsPlayerLoggedIn[target]) continue;
+        new Float:tx, Float:ty, Float:tz;
+        GetPlayerPos(target, tx, ty, tz);
+        new Float:dist = floatsqroot((x - tx) * (x - tx) + (y - ty) * (y - ty) + (z - tz) * (z - tz));
+        if (dist <= LOCAL_CHAT_RADIUS)
+        {
+            SendClientMessage(target, 0xFFFFFFFF, msg);
+        }
+    }
+    return 0;
+}
+public OnPlayerCommandText(playerid, cmdtext[])
+{
+    if (!IsPlayerLoggedIn[playerid])
+    {
+        if (cmdtext[0] == '/' && (
+            (cmdtext[1] == 'l' && cmdtext[2] == 'o' && cmdtext[3] == 'g' && cmdtext[4] == 'i' && cmdtext[5] == 'n') ||
+            (cmdtext[1] == 'r' && cmdtext[2] == 'e' && cmdtext[3] == 'g' && cmdtext[4] == 'i' && cmdtext[5] == 's' && cmdtext[6] == 't' && cmdtext[7] == 'e' && cmdtext[8] == 'r')
+            ))
+        {
+            return 0;
+        }
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Сначала зарегистрируйтесь или войдите.");
+        return 1;
+    }
+    return 0;
+}
+public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
+{
+    for (new i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (i == playerid) continue;
+        if (PlayerBike[i] == vehicleid)
+        {
+            RemovePlayerFromVehicle(playerid);
+            return 0;
+        }
+    }
+    if (PlayerBike[playerid] == vehicleid)
+    {
+        if (PlayerBikeTimer[playerid] != INVALID_TIMER)
+        {
+            KillTimer(PlayerBikeTimer[playerid]);
+            PlayerBikeTimer[playerid] = INVALID_TIMER;
+        }
+    }
+    return 1;
+}
+public OnPlayerExitVehicle(playerid, vehicleid)
+{
+    if (PlayerBike[playerid] == vehicleid) if (PlayerBikeTimer[playerid] == INVALID_TIMER) PlayerBikeTimer[playerid] = SetTimerEx("ReturnBike", RENT_DURATION, false, "i", playerid);
+    return 1;
+}
+public OnPlayerEnterCheckpoint(playerid)
+{
+	if (IsPlayerInRangeOfPoint(playerid, 2.0, GRUZ_BAG_X, GRUZ_BAG_Y, GRUZ_BAG_Z)
+	    && !GetPVarInt(playerid, "gruz_bag_taken")
+	    && GetPVarInt(playerid, "loader_gruz") == 1)
+	{
+	    if (!IsPlayerInAnyVehicle(playerid))
+	    {
+	        SetPVarInt(playerid, "gruz_bag_taken", 1);
+	        GruzRand(playerid);
+	        ApplyAnimation(playerid, "CARRY", "crry_prtial", 4.1, 0, 1, 1, 1, 1);
+	        SetPlayerAttachedObject(playerid, 2, 2060, 5, 0.01, 0.1, 0.2, 100, 10, 85);
+	        SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы взяли мешок. Отнесите его на склад.");
+	        new Float:x = GetPVarFloat(playerid, "gruz_drop_x");
+	        new Float:y = GetPVarFloat(playerid, "gruz_drop_y");
+	        new Float:z = GetPVarFloat(playerid, "gruz_drop_z");
+	        SetPlayerCheckpoint(playerid, x, y, z, 2.0);
+	    }
+	    else
+	    {
+	        SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя брать мешок в транспорте!");
+	    }
+	}
+	if (IsPlayerInRangeOfPoint(playerid, 2.0, GetPVarFloat(playerid, "gruz_drop_x"), GetPVarFloat(playerid, "gruz_drop_y"), GetPVarFloat(playerid, "gruz_drop_z"))
+	    && GetPVarInt(playerid, "gruz_bag_taken") == 1)
+	{
+	    if (!IsPlayerInAnyVehicle(playerid))
+	    {
+	        SetPVarInt(playerid, "accumulated_salary", GetPVarInt(playerid, "accumulated_salary") + 50);
+	        RemovePlayerAttachedObject(playerid, 2);
+	        SetPVarInt(playerid, "gruz_bag_taken", 0);
+	        SetPlayerCheckpoint(playerid, 2225.15, -2278.29, 14.76, 2.0);
+	        ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
+	    }
+	    else
+	    {
+	        SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать мешок в транспорте!");
+	    }
+	}
+    return 0;
+}
+public OnPlayerPickUpPickup(playerid, pickupid)
+{
+    if (pickupid == infoPickup[0])
+    {
+        ShowPlayerDialog(playerid, DIALOG_INFO, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\n \
+		Проект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\n \
+		Исходный код: https://github.com/GADGETNiK/0.47-project\r\n \
+		Игровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\n \
+		Вы сейчас находитесь в виртуальном мире, чтобы выйти, нужно зарегистрироваться или авторизоваться.\r\n \
+		Если аккаунта нет - /register, если есть - /login\r\n\r\n \
+		Нажмите ОК для закрытия.", "ОК", "");
+        return 1;
+    }
+    if (pickupid == infoPickup[1])
+    {
+        ShowPlayerDialog(playerid, DIALOG_INFO_2, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\n \
+		Проект является open-source, исходный код и плагины располагаются на GitHub разработчика.\r\n \
+		Исходный код: https://github.com/GADGETNiK/0.47-project\r\n \
+		Игровой мод сделан с упором на старые времена SAMP Android 0.47 build.\r\n \
+		Вы сейчас находитесь в обычном мире, можете начинать играть.\r\n\r\n \
+		Нажмите ОК для закрытия.", "ОК", "");
+        return 1;
+    }
+    if (pickupid == bikePickup)
+    {
+        if (!IsPlayerLoggedIn[playerid])
+        {
+            SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Аренда велосипеда доступна только залогиненным.");
+            return 1;
+        }
+        if (PlayerBike[playerid] != INVALID_VEHICLE_ID)
+        {
+            SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Вы уже арендовали велосипед.");
+            return 1;
+        }
+        ShowPlayerDialog(playerid, DIALOG_RENT_BIKE, DIALOG_STYLE_MSGBOX, "Аренда велосипеда", "Хотите арендовать велосипед?\r\nСтоимость: бесплатно\r\n \
+		ВНИМАНИЕ: Имеется таймер, если после выхода с велосипеда, вы не сядете за 5 минут простоя, то велосипед пропадёт.", "Арендовать", "Отмена");
+        return 1;
+    }
+	if (pickupid == loadergruz)
+	{
+	    if (!GetPVarInt(playerid, "loader_gruz"))
+	    {
+			SetPVarInt(playerid, "gruzskin", 260);
+			SetPlayerSkin(playerid, GetPVarInt(playerid, "gruzskin"));
+	        SetPVarInt(playerid, "loader_gruz", 1);
+	        SetPlayerCheckpoint(playerid, 2225.15, -2278.29, 14.76, 2.0);
+	        SetPVarInt(playerid, "accumulated_salary", 0);
+	        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы устроились грузчиком. Идите на красный маркер (указан на миникарте).");
+	    }
+	    else
+	    {
+	        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы уволились.");
+			GivePlayerCash(playerid, GetPVarInt(playerid, "accumulated_salary"));
+	        SetPVarInt(playerid, "loader_gruz", 0);
+	        DisablePlayerCheckpoint(playerid);
+	        SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+	        DeletePVar(playerid, "loader_gruz");
+	        DeletePVar(playerid, "accumulated_salary");
+	        DeletePVar(playerid, "gruzskin");
+	    }
+	    return 1;
+	}
+    return 0;
+}
+public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
+{
+	if((newkeys & KEY_JUMP) && !(oldkeys & KEY_JUMP) || (newkeys & KEY_FIRE))
+	{
+		if(GetPVarInt(playerid, "gruz_bag_taken"))
+		{
+		    SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы уронили мешок");
+		    RemovePlayerAttachedObject(playerid, 2);
+		    SetPVarInt(playerid, "gruz_bag_taken", 0);
+		    SetPlayerCheckpoint(playerid, 2225.15, -2278.29, 14.76, 2.0);
+		    ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
+		}
+	}
+	return 1;
+}
+public OnPlayerSpawn(playerid)
+{
+    if (!IsPlayerLoggedIn[playerid])
+    {
+        SetPlayerVirtualWorld(playerid, 9999);
+        SetPlayerPos(playerid, VIRTUAL_SPAWN[0], VIRTUAL_SPAWN[1], VIRTUAL_SPAWN[2]);
+        SetPlayerFacingAngle(playerid, VIRTUAL_SPAWN[3]);
+        SetPlayerSkin(playerid, 3); // скин бомжа
+    }
+    else
+    {
+        SetPlayerVirtualWorld(playerid, 0);
+        SetPlayerPos(playerid, NORMAL_SPAWN[0], NORMAL_SPAWN[1], NORMAL_SPAWN[2]);
+        SetPlayerFacingAngle(playerid, NORMAL_SPAWN[3]);
+        SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+    }
+    return 1;
+}
+public OnPlayerDeath(playerid, killerid, reason)
+{
+	return 1;
+}
+public OnVehicleSpawn(vehicleid)
+{
+	return 1;
+}
+public OnVehicleDeath(vehicleid, killerid)
+{
+	return 1;
+}
+public OnPlayerStateChange(playerid, newstate, oldstate)
+{
+    if (newstate == PLAYER_STATE_DRIVER)
+    {
+        new vehicleid = GetPlayerVehicleID(playerid);
+        for (new i = 0; i < MAX_PLAYERS; i++)
+        {
+            if (i == playerid) continue;
+            if (PlayerBike[i] == vehicleid)
+            {
+                RemovePlayerFromVehicle(playerid);
+                return 0;
+            }
+        }
+    }
+    if (newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER)
+    {
+        if(GetPVarInt(playerid, "gruz_bag_taken") > 0)
+        {
+            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вас уволили.{FF0000} Причина: Попытка сесть в транспорт с мешком.");
+            SCM(playerid, -1, "{808000}Директор завода:{FFFFFF} Зарплаты не будет, за попытки схитрить. {FF0000}Удачи.");
+            RemovePlayerAttachedObject(playerid, 2);
+            SetPVarInt(playerid, "gruz_bag_taken", 0);
+            SetPlayerCheckpoint(playerid, 2225.15, -2278.29, 14.76, 2.0);
+            ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
+            DeletePVar(playerid, "loader_gruz");
+        	DeletePVar(playerid, "accumulated_salary");
+	        DeletePVar(playerid, "gruzskin");
+	        DisablePlayerCheckpoint(playerid);
+	        SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+            return 0;
+        }
+    }
+    return 1;
+}
+public OnPlayerLeaveCheckpoint(playerid)
+{
+	return 1;
+}
+public OnPlayerEnterRaceCheckpoint(playerid)
+{
+	return 1;
+}
+public OnPlayerLeaveRaceCheckpoint(playerid)
+{
+	return 1;
+}
+public OnRconCommand(cmd[])
+{
+	return 1;
+}
+public OnPlayerRequestSpawn(playerid)
+{
+    return 1;
+}
+public OnObjectMoved(objectid)
+{
+	return 1;
+}
+public OnPlayerObjectMoved(playerid, objectid)
+{
+	return 1;
+}
+public OnVehicleMod(playerid, vehicleid, componentid)
+{
+	return 1;
+}
+public OnVehiclePaintjob(playerid, vehicleid, paintjobid)
+{
+	return 1;
+}
+public OnVehicleRespray(playerid, vehicleid, color1, color2)
+{
+	return 1;
+}
+public OnPlayerSelectedMenuRow(playerid, row)
+{
+	return 1;
+}
+public OnPlayerExitedMenu(playerid)
+{
+	return 1;
+}
+public OnPlayerInteriorChange(playerid, newinteriorid, oldinteriorid)
+{
+	return 1;
+}
+public OnRconLoginAttempt(ip[], password[], success)
+{
+	return 1;
+}
+public OnPlayerUpdate(playerid)
+{
+	return 1;
+}
+public OnPlayerStreamIn(playerid, forplayerid)
+{
+	return 1;
+}
+public OnPlayerStreamOut(playerid, forplayerid)
+{
+	return 1;
+}
+public OnVehicleStreamIn(vehicleid, forplayerid)
+{
+	return 1;
+}
+public OnVehicleStreamOut(vehicleid, forplayerid)
+{
+	return 1;
+}
+/////////////////////
+forward ReturnBike(playerid);
 public ReturnBike(playerid)
 {
     if (PlayerBike[playerid] != INVALID_VEHICLE_ID)
@@ -388,6 +507,193 @@ public ReturnBike(playerid)
         PlayerBikeTimer[playerid] = INVALID_TIMER;
     }
 }
+forward GivePlayerCash(playerid, amount);
+public GivePlayerCash(playerid, amount)
+{
+    PlayerInfo[playerid][pMoney] += amount;
+    ResetPlayerMoney(playerid);
+    GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
+}
+stock GruzRand(playerid)
+{
+    new idx = random(3); // 0,1,2
+    SetPVarFloat(playerid, "gruz_drop_x", GruzDropPoints[idx][0]);
+    SetPVarFloat(playerid, "gruz_drop_y", GruzDropPoints[idx][1]);
+    SetPVarFloat(playerid, "gruz_drop_z", GruzDropPoints[idx][2]);
+}
+/////////////////////////////////////////////
+forward find_table(playerid);
+public find_table(playerid)
+{
+    new rows;
+    cache_get_row_count(rows);
+    if (!rows)
+    {
+        IsPlayerRegistered[playerid] = false;
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт не найден. Пожалуйста, зарегистрируйтесь с помощью /register <пароль>.");
+    }
+    else
+    {
+        IsPlayerRegistered[playerid] = true;
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт найден. Пожалуйста, авторизуйтесь с помощью /login <пароль>.");
+		new player_name[MAX_PLAYER_NAME];
+        GetPlayerName(playerid, player_name, sizeof(player_name));
+        new query[256];
+        format(query, sizeof(query),
+            "SELECT id, name, password_salt, password_hash, money, level, exp, skin, admin FROM accounts WHERE LOWER(name) = LOWER('%s') LIMIT 1",
+            player_name);
+        mysql_tquery(sampbd, query, "UploadPlayerAccount", "i", playerid);
+    }
+    return 1;
+}
+stock bool:CheckLoginPassword(playerid)
+{
+    if (strlen(LoginPassword[playerid]) == 0) return false;
+    new computedHash[65];
+    SHA256_PassHash(LoginPassword[playerid], PlayerInfo[playerid][pSalt], computedHash, sizeof(computedHash));
+    if (strcmp(computedHash, PlayerInfo[playerid][pPasswordHash], false) != 0)
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Неверный пароль.");
+        return false;
+    }
+    IsPlayerLoggedIn[playerid] = true;
+    SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Авторизация прошла успешно. Приятной игры на нашем проекте.");
+    LoginPassword[playerid][0] = '\0';
+	GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
+    SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
+    SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+    SpawnPlayer(playerid);
+    return true;
+}
+forward UploadPlayerAccount(playerid);
+public UploadPlayerAccount(playerid)
+{
+    if (cache_num_rows() == 0)
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт не найден.");
+        return 0;
+    }
+    cache_get_value_name_int(0, "id", PlayerInfo[playerid][pID]);
+    cache_get_value_name(0, "name", PlayerInfo[playerid][pName]);
+    cache_get_value_name(0, "password_salt", PlayerInfo[playerid][pSalt]);
+    cache_get_value_name(0, "password_hash", PlayerInfo[playerid][pPasswordHash]);
+    cache_get_value_name_int(0, "money", PlayerInfo[playerid][pMoney]);
+    cache_get_value_name_int(0, "level", PlayerInfo[playerid][pLevel]);
+    cache_get_value_name_int(0, "exp", PlayerInfo[playerid][pEXP]);
+    cache_get_value_name_int(0, "skin", PlayerInfo[playerid][pSkin]);
+    cache_get_value_name_int(0, "admin", PlayerInfo[playerid][pAdmin]);
+    return CheckLoginPassword(playerid);
+}
+stock SaveAccount(playerid)
+{
+    new query_string[512];
+    format(query_string, sizeof(query_string),
+        "UPDATE `accounts` SET `name` = '%s', `password_salt` = '%s', `password_hash` = '%s', `money` = %d, `level` = %d, `exp` = %d, `skin` = %d, `admin` = %d WHERE `name` = '%s'",
+        PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
+        PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP], PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pName]);
+
+    mysql_tquery(sampbd, query_string, "", "");
+    return 1;
+}
+stock CreateNewAccount(playerid, password[])
+{
+    new salt[16];
+    format(salt, sizeof(salt), "salt_%d", playerid);
+    new hash[65];
+    SHA256_PassHash(password, salt, hash, sizeof(hash));
+    strins(PlayerInfo[playerid][pSalt], salt, 0);
+    strins(PlayerInfo[playerid][pPasswordHash], hash, 0);
+    PlayerInfo[playerid][pLevel] = 1;
+    PlayerInfo[playerid][pMoney] = 500;
+    PlayerInfo[playerid][pAdmin] = 0;
+    PlayerInfo[playerid][pSkin] = 230;
+    new query_string[512];
+    format(query_string, sizeof(query_string),
+        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`)" \
+        "VALUES ('%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d')",
+        PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
+        PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP],
+        PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin]);
+    mysql_tquery(sampbd, query_string, "", "");
+    GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
+    SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
+    SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+    SpawnPlayer(playerid);
+    return 1;
+}
+///////////////////////////////////////////////
+CMD:register(playerid, params[])
+{
+    if (IsPlayerLoggedIn[playerid]) return 1;
+    if (strlen(params) == 0)
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /register <пароль>");
+        return 1;
+    }
+    if (strlen(params) < 4)
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Пароль должен содержать минимум 4 символа.");
+        return 1;
+    }
+    if (IsPlayerRegistered[playerid])
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} У вас уже есть аккаунт! Войдите через /login <пароль>.");
+        return 1;
+    }
+    new player_name[MAX_PLAYER_NAME];
+    GetPlayerName(playerid, player_name, sizeof(player_name));
+    strins(PlayerInfo[playerid][pName], player_name, 0);
+    CreateNewAccount(playerid, params);
+    IsPlayerRegistered[playerid] = true;
+    IsPlayerLoggedIn[playerid] = true;
+    SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Регистрация прошла успешно. Приятной игры на нашем проекте.");
+    SpawnPlayer(playerid);
+    return 1;
+}
+CMD:login(playerid, params[])
+{
+    if (IsPlayerLoggedIn[playerid]) return 1;
+    if (strlen(params) == 0)
+    {
+        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Используйте: /login <пароль>]");
+        return 1;
+    }
+    format(LoginPassword[playerid], MAX_PASS_LENGTH + 1, "%s", params);
+    new player_name[MAX_PLAYER_NAME];
+    GetPlayerName(playerid, player_name, sizeof(player_name));
+    new query[256];
+    format(query, sizeof(query),
+        "SELECT `id`, `name`, `password_salt`, `password_hash`, `money`, `level`, `exp` FROM `accounts` WHERE LOWER(`name`) = LOWER('%s') LIMIT 1",
+        player_name);
+    mysql_tquery(sampbd, query, "UploadPlayerAccount", "i", playerid);
+    return 1;
+}
+CMD:givevehid(playerid, params[])
+{
+    new modelid;
+    if (sscanf(params, "d", modelid))
+    {
+        SendClientMessage(playerid, -1, "Использование: /givevehid [ID модели транспорта]");
+        return 0;
+    }
+    if (modelid < 400 || modelid > 611)
+    {
+        SendClientMessage(playerid, -1, "Неверный ID модели транспорта.");
+        return 0;
+    }
+    new Float:x, Float:y, Float:z;
+    GetPlayerPos(playerid, x, y, z);
+    new vehicleid = CreateVehicle(modelid, x + 2.0, y, z, 0.0, 100, 0, -1);
+    if (vehicleid == INVALID_VEHICLE_ID)
+    {
+        SendClientMessage(playerid, -1, "Ошибка при создании транспорта.");
+        return 0;
+    }
+    PutPlayerInVehicle(playerid, vehicleid, -1);
+    SendClientMessage(playerid, -1, "Транспорт создан и выдан вам.");
+    return 1;
+}
+////////////////////////////////////////////////////
 stock removeobj(playerid)
 {
 	RemoveBuildingForPlayer(playerid, 3744, 2193.2578, -2286.2891, 14.8125, 0.25);
@@ -475,156 +781,4 @@ stock removeobj(playerid)
 	CreateObject(1715, 2122.98608, -2276.69287, 19.64370,   0.00000, 0.00000, 105.00000);
 	CreateObject(1684, 2189.73486, -2252.07373, 13.95973,   0.00000, 0.00000, 45.00000);
 	CreateObject(3578, 2193.23145, -2256.62012, 13.20700,   0.00000, 0.00000, 45.00000);
-}
-forward find_table(playerid);
-public find_table(playerid)
-{
-    new rows;
-    cache_get_row_count(rows);
-    if (!rows)
-    {
-        // Аккаунт не найден — игрок не зарегистрирован
-        IsPlayerRegistered[playerid] = false;
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт не найден. Пожалуйста, зарегистрируйтесь с помощью /register <пароль>.");
-    }
-    else
-    {
-        // Аккаунт найден
-        IsPlayerRegistered[playerid] = true;
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт найден. Войдите с помощью /login <пароль>.");
-    }
-    return 1;
-}
-forward UploadPlayerAccount(playerid);
-public UploadPlayerAccount(playerid)
-{
-    cache_get_value_name_int(0, "id", PlayerInfo[playerid][pID]);
-    cache_get_value_name(0, "password_salt", PlayerInfo[playerid][pSalt]);
-    cache_get_value_name(0, "password_hash", PlayerInfo[playerid][pPasswordHash]);
-    cache_get_value_name(0, "name", PlayerInfo[playerid][pName]);
-    cache_get_value_name_int(0, "money", PlayerInfo[playerid][pMoney]);
-    cache_get_value_name_int(0, "level", PlayerInfo[playerid][pLevel]);
-    cache_get_value_name_int(0, "exp", PlayerInfo[playerid][pEXP]);
-
-    new computedHash[65];
-    SHA256_PassHash(LoginPassword[playerid], PlayerInfo[playerid][pSalt], computedHash, sizeof(computedHash));
-
-    if (strcmp(computedHash, PlayerInfo[playerid][pPasswordHash], false) != 0)
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FF0000} Неверный пароль.]");
-        return 0;
-    }
-
-    IsPlayerLoggedIn[playerid] = true;
-    GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
-    SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
-    OnPlayerRequestClass(playerid, 0);
-    SpawnPlayer(playerid);
-    return 1;
-}
-stock SaveAccount(playerid)
-{
-    new query_string[512];
-    format(query_string, sizeof(query_string),
-        "UPDATE `accounts` SET `name` = '%s', `password_salt` = '%s', `password_hash` = '%s', `money` = %d, `level` = %d, `exp` = %d WHERE `name` = '%s'",
-        PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
-        PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP], PlayerInfo[playerid][pName]);
-
-    mysql_tquery(sampbd, query_string, "", "");
-    return 1;
-}
-stock CreateNewAccount(playerid, password[])
-{
-    new salt[16];
-    format(salt, sizeof(salt), "salt_%d", playerid); // генерация соли (можно изменить на более сложную)
-    new hash[65];
-    SHA256_PassHash(password, salt, hash, sizeof(hash));
-    // Сохраняем соль и хеш в PlayerInfo
-    strins(PlayerInfo[playerid][pSalt], salt, 0);
-    strins(PlayerInfo[playerid][pPasswordHash], hash, 0);
-    new query_string[256];
-    format(query_string, sizeof(query_string),
-        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`) VALUES ('%s', '%s', '%s', '%d', '%d', '%d')",
-        PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash], PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP]);
-    mysql_tquery(sampbd, query_string, "", "");
-    PlayerInfo[playerid][pLevel] = 1;
-    PlayerInfo[playerid][pMoney] = 500;
-    SpawnPlayer(playerid);
-    return 1;
-}
-CMD:register(playerid, params[])
-{
-    if (strlen(params) == 0)
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /register <пароль>");
-        return 1;
-    }
-    if (strlen(params) < 4)
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Пароль должен содержать минимум 4 символа.");
-        return 1;
-    }
-    if (IsPlayerRegistered[playerid])
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} У вас уже есть аккаунт! Войдите через /login <пароль>.");
-        return 1;
-    }
-    new player_name[MAX_PLAYER_NAME];
-    GetPlayerName(playerid, player_name, sizeof(player_name));
-    strins(PlayerInfo[playerid][pName], player_name, 0);
-    CreateNewAccount(playerid, params);
-    IsPlayerRegistered[playerid] = true;
-    IsPlayerLoggedIn[playerid] = true;
-    SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Регистрация успешна! Вы вошли.]");
-    OnPlayerRequestClass(playerid, 0);
-    return 1;
-}
-CMD:login(playerid, params[])
-{
-    if (IsPlayerLoggedIn[playerid])
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы уже вошли в аккаунт.]");
-        return 1;
-    }
-    if (strlen(params) == 0)
-    {
-        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Используйте: /login <пароль>]");
-        return 1;
-    }
-    new player_name[MAX_PLAYER_NAME];
-    GetPlayerName(playerid, player_name, sizeof(player_name));
-    strins(PlayerInfo[playerid][pName], player_name, 0);
-    format(LoginPassword[playerid], MAX_PASS_LENGTH + 1, "%s", params);
-    new query[256];
-    format(query, sizeof(query),
-        "SELECT `id`, `password_salt`, `password_hash`, `money`, `level`, `exp` FROM `accounts` WHERE LOWER(`name`) = LOWER('%s')",
-        player_name);
-
-    mysql_tquery(sampbd, query, "UploadPlayerAccount", "i", playerid);
-    return 1;
-}
-CMD:givevehid(playerid, params[])
-{
-    new modelid;
-    if (sscanf(params, "d", modelid))
-    {
-        SendClientMessage(playerid, -1, "Использование: /givevehid [ID модели транспорта]");
-        return 0;
-    }
-    if (modelid < 400 || modelid > 611)
-    {
-        SendClientMessage(playerid, -1, "Неверный ID модели транспорта.");
-        return 0;
-    }
-    new Float:x, Float:y, Float:z;
-    GetPlayerPos(playerid, x, y, z);
-    new vehicleid = CreateVehicle(modelid, x + 2.0, y, z, 0.0, 100, 0, -1);
-    if (vehicleid == INVALID_VEHICLE_ID)
-    {
-        SendClientMessage(playerid, -1, "Ошибка при создании транспорта.");
-        return 0;
-    }
-    PutPlayerInVehicle(playerid, vehicleid, -1);
-    SendClientMessage(playerid, -1, "Транспорт создан и выдан вам.");
-    return 1;
 }
