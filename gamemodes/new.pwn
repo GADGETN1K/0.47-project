@@ -10,7 +10,7 @@ new MySQL:sampbd;
 #define MYSQL_USER      "root"
 #define MYSQL_PASSWORD  "^Ws1@SJc7JJmtY"
 #define MYSQL_DATABASE  "047project"
-///////////////////
+//////////////////
 #define SCM             			SendClientMessage
 #define SALT_SIZE 16
 #define HASH_SIZE 65
@@ -31,7 +31,14 @@ new MySQL:sampbd;
 #define GRUZ_BAG_X 2225.1597
 #define GRUZ_BAG_Y -2278.2952
 #define GRUZ_BAG_Z 14.7647
+#define FERMA_BAG_X -322.0230
+#define FERMA_BAG_Y -1492.3535
+#define FERMA_BAG_Z 12.9880
 #define CHECKPOINT_RADIUS 3.0
+#define GROVE_INTERIOR 3
+#define FRACTION_GROVE 1
+#define MAX_GROVE_VEHICLES 10
+#define KEY_ENTER_VEHICLE 0x00000100
 ///////////////////
 main() {}
 #pragma warning disable 239
@@ -47,17 +54,25 @@ enum pInfo
 	pLevel,
 	pEXP,
 	pSkin,
-	pAdmin
+	pAdmin,
+	pFraction,
+	pfSkin,
+	pFractionRank,
+	pFractionLeader
 }
 new PlayerInfo[MAX_PLAYERS][pInfo];
 new bool:IsPlayerLoggedIn[MAX_PLAYERS];
 new bool:IsPlayerRegistered[MAX_PLAYERS];
 ////////////////////
-new const Float:VIRTUAL_SPAWN[4] = {1043.1250,1016.8333,11.0000,0.0000};
-new const Float:NORMAL_SPAWN[4] = {1492.0560,-1837.0934,13.5469,238.1122};
+new Float:groveEnterX = 2495.5171, Float:groveEnterY = -1691.0331, Float:groveEnterZ = 14.7656;
+new Float:groveEnterIX = 2496.05, Float:groveEnterIY = -1695.23, Float:groveEnterIZ = 1014.74;
+new Float:groveExitX = 2495.2275, Float:groveExitY = -1688.8795, Float:groveExitZ = 14.0820;
+new Float:groveExitIX = 2495.9414, Float:groveExitIY = -1692.0834, Float:groveExitIZ = 1014.7422;
+new const Float:VIRTUAL_SPAWN[4] = {1035.9910,1019.4274,11.0000,114.6810};
+new const Float:NORMAL_SPAWN[4] = {1479.8516,-1725.2273,13.5469,359.4516};
 new infoPickup[2];
 new bikePickup;
-new Float:BikePickupPos[3] = {1510.1011,-1849.7041,13.5469};
+new Float:BikePickupPos[3] = {1477.6136,-1672.9910,14.0469};
 new PlayerBike[MAX_PLAYERS];
 new PlayerBikeTimer[MAX_PLAYERS];
 new loadergruz;
@@ -66,6 +81,22 @@ new Float:GruzDropPoints[3][3] = {
     {2158.4097, -2232.5789, 13.3071},
     {2144.2583, -2254.5845, 13.2990}
 };
+new loaderferma, loaderfermai;
+new Float:FermaDropPoints[10][3] = {
+    {-284.2612, -1477.4885, 6.0660},
+    {-282.0764, -1494.9863, 6.4665},
+    {-281.8070, -1517.5317, 6.3004},
+    {-280.8591, -1539.6947, 6.0296},
+    {-259.9134, -1547.1987, 3.9296},
+    {-250.7696, -1532.2198, 5.9142},
+    {-247.4035, -1510.4563, 6.7786},
+    {-230.2738, -1499.3269, 7.8300},
+    {-220.0731, -1477.5497, 7.2824},
+    {-233.4813, -1470.4108, 5.0051}
+};
+new grove[2];
+new groveVehicles[MAX_GROVE_VEHICLES];
+new Text:LOGO;
 ////////////////////
 public OnGameModeInit()
 {
@@ -77,13 +108,33 @@ public OnGameModeInit()
     infoPickup[0] = CreatePickup(18631, 2, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z, 9999);
     infoPickup[1] = CreatePickup(18631, 2, INFO_PICKUP_n_X, INFO_PICKUP_n_Y, INFO_PICKUP_n_Z, 0);
     Create3DTextLabel("Информация", 0xFFFFFFFF, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z + 1.0, 20.0, 9999, 0);
+    Create3DTextLabel("Аренда велосипеда", 0xFFFFFFFF, BikePickupPos[0], BikePickupPos[1], BikePickupPos[2] + 1.0, 20.0, 9999, 0);
     bikePickup = CreatePickup(19134, 2, BikePickupPos[0], BikePickupPos[1], BikePickupPos[2], 0);
     for (new i = 0; i < MAX_PLAYERS; i++)
     {
         PlayerBike[i] = INVALID_VEHICLE_ID;
         PlayerBikeTimer[i] = INVALID_TIMER;
     }
-	loadergruz = CreatePickup(1275, 2, 2193.7202, -2251.5547, 13.5469, 0); // Пикап для переодевалки, устройства и увольнения грузчика
+	loadergruz = CreatePickup(1275, 2, 2193.7202, -2251.5547, 13.5469, 0);
+	loaderferma = CreatePickup(1275, 2, -318.3027,-1517.6577,12.7666, 0);
+	loaderfermai = CreatePickup(2228, 2, -318.1532,-1506.5642,12.5356, 0);
+    grove[0] = CreatePickup(1279, 23, groveEnterX, groveEnterY, groveEnterZ, 0);
+    grove[1] = CreatePickup(1279, 23, groveExitIX, groveExitIY, groveExitIZ, 100);
+    groveVehicles[0] = CreateVehicle(492,2505.8438,-1678.9124,13.2429, 320.1924, 229, 229, 100);
+    groveVehicles[1] = CreateVehicle(400,2509.5388,-1671.9961,13.4942, 345.3892, 229, 229, 100);
+    groveVehicles[2] = CreateVehicle(422,2518.7510,-1666.3563,14.3375, 92.1370, 229, 229, 100);
+    groveVehicles[3] = CreateVehicle(492,2474.8933,-1680.5519,13.1374, 53.1496, 229, 229, 100);
+    groveVehicles[4] = CreateVehicle(400,2478.1575,-1653.7532,13.4847, 89.8375, 229, 229, 100);
+    groveVehicles[5] = CreateVehicle(413,2463.2407,-1677.9370,13.6048, 31.3153, 229, 229, 100);
+    LOGO = TextDrawCreate(549.000000, 9.625000, "0.47 Project");
+    TextDrawLetterSize(LOGO, 0.321000, 1.109999);
+    TextDrawAlignment(LOGO, 1);
+    TextDrawSetShadow(LOGO, 1);
+    TextDrawSetOutline(LOGO, 0);
+    TextDrawBackgroundColor(LOGO, 51);
+    TextDrawFont(LOGO, 3);
+    TextDrawSetProportional(LOGO, 1);
+    SetTimer("ChangeColorEffect", 5000, true);
 }
 public OnGameModeExit()
 {
@@ -101,8 +152,8 @@ public OnPlayerConnect(playerid)
 {
     IsPlayerLoggedIn[playerid] = false;
     IsPlayerRegistered[playerid] = false;
+    TextDrawShowForPlayer(playerid,LOGO);
 	SetPlayerVirtualWorld(playerid, 9999);
-    // Устанавливаем виртуальный спавн и скин бомжа
     SetPlayerPos(playerid, VIRTUAL_SPAWN[0], VIRTUAL_SPAWN[1], VIRTUAL_SPAWN[2]);
     SetPlayerFacingAngle(playerid, VIRTUAL_SPAWN[3]);
     SetPlayerSkin(playerid, 3);
@@ -130,6 +181,9 @@ public OnPlayerDisconnect(playerid, reason)
     DeletePVar(playerid, "gruzskin");
     DeletePVar(playerid, "gruz_bag_taken");
     DeletePVar(playerid, "loader_gruz");
+    DeletePVar(playerid, "fermaskin");
+    DeletePVar(playerid, "ferma_bag_taken");
+    DeletePVar(playerid, "loader_ferma");
     LoginPassword[playerid][0] = '\0';
     IsPlayerLoggedIn[playerid] = false;
     IsPlayerRegistered[playerid] = false;
@@ -226,6 +280,15 @@ public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
             PlayerBikeTimer[playerid] = INVALID_TIMER;
         }
     }
+    if (IsFractionVehicle(vehicleid, FRACTION_GROVE))
+    {
+        if (PlayerInfo[playerid][pFraction] != FRACTION_GROVE)
+        {
+            SendClientMessage(playerid, 0xFF0000FF, "Вы не можете садиться в эту машину, она принадлежит Grove Street.");
+            RemovePlayerFromVehicle(playerid);
+            return 0; // запретить вход
+        }
+    }
     return 1;
 }
 public OnPlayerExitVehicle(playerid, vehicleid)
@@ -235,9 +298,7 @@ public OnPlayerExitVehicle(playerid, vehicleid)
 }
 public OnPlayerEnterCheckpoint(playerid)
 {
-	if (IsPlayerInRangeOfPoint(playerid, 2.0, GRUZ_BAG_X, GRUZ_BAG_Y, GRUZ_BAG_Z)
-	    && !GetPVarInt(playerid, "gruz_bag_taken")
-	    && GetPVarInt(playerid, "loader_gruz") == 1)
+	if (IsPlayerInRangeOfPoint(playerid, 2.0, GRUZ_BAG_X, GRUZ_BAG_Y, GRUZ_BAG_Z) && !GetPVarInt(playerid, "gruz_bag_taken") && GetPVarInt(playerid, "loader_gruz") == 1)
 	{
 	    if (!IsPlayerInAnyVehicle(playerid))
 	    {
@@ -251,13 +312,9 @@ public OnPlayerEnterCheckpoint(playerid)
 	        new Float:z = GetPVarFloat(playerid, "gruz_drop_z");
 	        SetPlayerCheckpoint(playerid, x, y, z, 2.0);
 	    }
-	    else
-	    {
-	        SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя брать мешок в транспорте!");
-	    }
+	    else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя брать мешок в транспорте!");
 	}
-	if (IsPlayerInRangeOfPoint(playerid, 2.0, GetPVarFloat(playerid, "gruz_drop_x"), GetPVarFloat(playerid, "gruz_drop_y"), GetPVarFloat(playerid, "gruz_drop_z"))
-	    && GetPVarInt(playerid, "gruz_bag_taken") == 1)
+	if (IsPlayerInRangeOfPoint(playerid, 2.0, GetPVarFloat(playerid, "gruz_drop_x"), GetPVarFloat(playerid, "gruz_drop_y"), GetPVarFloat(playerid, "gruz_drop_z")) && GetPVarInt(playerid, "gruz_bag_taken") == 1)
 	{
 	    if (!IsPlayerInAnyVehicle(playerid))
 	    {
@@ -267,10 +324,39 @@ public OnPlayerEnterCheckpoint(playerid)
 	        SetPlayerCheckpoint(playerid, 2225.15, -2278.29, 14.76, 2.0);
 	        ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
 	    }
-	    else
+	    else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать мешок в транспорте!");
+	}
+	if (IsPlayerInRangeOfPoint(playerid, 2.0,
+	        GetPVarFloat(playerid, "ferma_drop_x"),
+	        GetPVarFloat(playerid, "ferma_drop_y"),
+	        GetPVarFloat(playerid, "ferma_drop_z"))
+	    && !GetPVarInt(playerid, "ferma_bag_taken")
+	    && GetPVarInt(playerid, "loader_ferma") == 1 && GetPVarInt(playerid, "ferma_instrument") == 1)
+	{
+	    if (!IsPlayerInAnyVehicle(playerid))
 	    {
-	        SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать мешок в транспорте!");
+	        SetPVarInt(playerid, "ferma_bag_taken", 1);
+	        SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Куст взят, отнесите его на склад.");
+	        SetPlayerCheckpoint(playerid, FERMA_BAG_X, FERMA_BAG_Y, FERMA_BAG_Z, 2.0);
+	        ApplyAnimation(playerid, "BOMBER", "BOM_Plant", 6.1, 0, 0, 0, 0, 0,1);
 	    }
+	    else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя брать куст в транспорте!");
+	}
+	if (IsPlayerInRangeOfPoint(playerid, 2.0, FERMA_BAG_X, FERMA_BAG_Y, FERMA_BAG_Z) && GetPVarInt(playerid, "ferma_bag_taken") == 1)
+	{
+	    if (!IsPlayerInAnyVehicle(playerid))
+	    {
+	        SetPVarInt(playerid, "accumulated_salary", GetPVarInt(playerid, "accumulated_salary") + 50);
+	        SetPVarInt(playerid, "ferma_bag_taken", 0);
+	        FermaRand(playerid); // выдаём новые координаты куста - новой точки сбора
+	        new Float:x = GetPVarFloat(playerid, "ferma_drop_x");
+	        new Float:y = GetPVarFloat(playerid, "ferma_drop_y");
+	        new Float:z = GetPVarFloat(playerid, "ferma_drop_z");
+	        SetPlayerCheckpoint(playerid, x, y, z, 2.0);
+	        SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Готово! Идите к следующему кусту.");
+	        ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
+	    }
+	    else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать куст в транспорте!");
 	}
     return 0;
 }
@@ -337,6 +423,61 @@ public OnPlayerPickUpPickup(playerid, pickupid)
 	    }
 	    return 1;
 	}
+	if (pickupid == loaderferma)
+	{
+	    if (!GetPVarInt(playerid, "loader_ferma"))
+	    {
+			SetPVarInt(playerid, "fermaskin", 158);
+			SetPlayerSkin(playerid, GetPVarInt(playerid, "fermaskin"));
+	        SetPVarInt(playerid, "loader_ferma", 1);
+	        SetPVarInt(playerid, "accumulated_salary", 0);
+	        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы устроились фермером. Возьмите инструмент. Идите на красный маркер (указан на миникарте).");
+	    }
+	    else
+	    {
+	        SendClientMessage(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы уволились.");
+			GivePlayerCash(playerid, GetPVarInt(playerid, "accumulated_salary"));
+	        SetPVarInt(playerid, "loader_ferma", 0);
+	        DisablePlayerCheckpoint(playerid);
+	        SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+	        DeletePVar(playerid, "loader_ferma");
+	        DeletePVar(playerid, "accumulated_salary");
+	        DeletePVar(playerid, "fermaskin");
+	    }
+	    return 1;
+	}
+	if (pickupid == loaderfermai)
+	{
+	    if (GetPVarInt(playerid, "loader_ferma") && !GetPVarInt(playerid, "ferma_instrument"))
+	    {
+	        SetPVarInt(playerid, "ferma_bag_taken", 0);
+	        SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Инструмент взят, идите за кустом.");
+	        SetPVarInt(playerid, "ferma_instrument", 1);
+	        new idx = random(10); // выбираем рандом индекс 0..9
+
+	        // Устанавливаем pvar с координатами выбранной точки
+	        SetPVarFloat(playerid, "ferma_drop_x", FermaDropPoints[idx][0]);
+	        SetPVarFloat(playerid, "ferma_drop_y", FermaDropPoints[idx][1]);
+	        SetPVarFloat(playerid, "ferma_drop_z", FermaDropPoints[idx][2]);
+
+	        // Ставим чекпоинт на выбранную точку
+	        SetPlayerCheckpoint(playerid, FermaDropPoints[idx][0], FermaDropPoints[idx][1], FermaDropPoints[idx][2], 2.0);
+
+	    }
+	    return 1;
+	}
+    if (pickupid == grove[0])
+    {
+        SetPlayerPos(playerid, groveEnterIX, groveEnterIY, groveEnterIZ);
+        SetPlayerInterior(playerid, GROVE_INTERIOR);
+        SetPlayerVirtualWorld(playerid, 100);
+    }
+    if (pickupid == grove[1])
+    {
+        SetPlayerPos(playerid, groveExitX, groveExitY, groveExitZ);
+        SetPlayerInterior(playerid, 0);
+        SetPlayerVirtualWorld(playerid, 0);
+    }
     return 0;
 }
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
@@ -361,7 +502,8 @@ public OnPlayerSpawn(playerid)
         SetPlayerVirtualWorld(playerid, 9999);
         SetPlayerPos(playerid, VIRTUAL_SPAWN[0], VIRTUAL_SPAWN[1], VIRTUAL_SPAWN[2]);
         SetPlayerFacingAngle(playerid, VIRTUAL_SPAWN[3]);
-        SetPlayerSkin(playerid, 3); // скин бомжа
+        SetPlayerSkin(playerid, 3);
+        SetCameraBehindPlayer(playerid);
     }
     else
     {
@@ -369,6 +511,7 @@ public OnPlayerSpawn(playerid)
         SetPlayerPos(playerid, NORMAL_SPAWN[0], NORMAL_SPAWN[1], NORMAL_SPAWN[2]);
         SetPlayerFacingAngle(playerid, NORMAL_SPAWN[3]);
         SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+        SetCameraBehindPlayer(playerid);
     }
     return 1;
 }
@@ -417,8 +560,22 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
             return 0;
         }
     }
+    if (newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER)
+    {
+        new vehicleid = GetPlayerVehicleID(playerid);
+	    if (IsFractionVehicle(vehicleid, FRACTION_GROVE))
+	    {
+	        if (PlayerInfo[playerid][pFraction] != FRACTION_GROVE)
+	        {
+	            SendClientMessage(playerid, 0xFF0000FF, "Вы не можете садиться в эту машину, она принадлежит Grove Street.");
+	            RemovePlayerFromVehicle(playerid);
+	            return 0;
+	        }
+	    }
+    }
     return 1;
 }
+public OnPlayerClickMap(playerid, Float:fX, Float:fY, Float:fZ) { return SetPlayerPos(playerid,fX,fY,fZ); }
 public OnPlayerLeaveCheckpoint(playerid)
 {
 	return 1;
@@ -496,6 +653,20 @@ public OnVehicleStreamOut(vehicleid, forplayerid)
 	return 1;
 }
 /////////////////////
+stock IsFractionVehicle(vehicleid, fractionid)
+{
+    if (fractionid == FRACTION_GROVE) // или другой ID фракции
+    {
+        for (new i = 0; i < MAX_GROVE_VEHICLES; i++)
+        {
+            if (groveVehicles[i] == vehicleid)
+                return 1;
+        }
+    }
+    // Можно добавить поддержку других фракций по аналогии
+    return 0;
+}
+
 forward ReturnBike(playerid);
 public ReturnBike(playerid)
 {
@@ -521,6 +692,27 @@ stock GruzRand(playerid)
     SetPVarFloat(playerid, "gruz_drop_y", GruzDropPoints[idx][1]);
     SetPVarFloat(playerid, "gruz_drop_z", GruzDropPoints[idx][2]);
 }
+stock FermaRand(playerid)
+{
+    new idx = random(10); // 0,1,2
+    SetPVarFloat(playerid, "ferma_drop_x", FermaDropPoints[idx][0]);
+    SetPVarFloat(playerid, "ferma_drop_y", FermaDropPoints[idx][1]);
+    SetPVarFloat(playerid, "ferma_drop_z", FermaDropPoints[idx][2]);
+
+}
+forward ChangeColorEffect();
+public ChangeColorEffect()
+{
+    new r = random(256);
+    new g = random(256);
+    new b = random(256);
+    new color = (r << 24) | (g << 16) | (b << 8) | 0xFF; // непрозрачный цвет
+
+    TextDrawColor(LOGO, color);
+    // TextDrawShowForAll(LOGO); // вызывать повторно не нужно, textdraw уже виден
+
+    return 1; // возвращаем 1, чтобы таймер повторялся
+}
 /////////////////////////////////////////////
 forward find_table(playerid);
 public find_table(playerid)
@@ -540,7 +732,7 @@ public find_table(playerid)
         GetPlayerName(playerid, player_name, sizeof(player_name));
         new query[256];
         format(query, sizeof(query),
-            "SELECT id, name, password_salt, password_hash, money, level, exp, skin, admin FROM accounts WHERE LOWER(name) = LOWER('%s') LIMIT 1",
+            "SELECT id, name, password_salt, password_hash, money, level, exp, skin, admin, fraction, skinf, frank, fleader FROM accounts WHERE LOWER(name) = LOWER('%s') LIMIT 1",
             player_name);
         mysql_tquery(sampbd, query, "UploadPlayerAccount", "i", playerid);
     }
@@ -582,15 +774,20 @@ public UploadPlayerAccount(playerid)
     cache_get_value_name_int(0, "exp", PlayerInfo[playerid][pEXP]);
     cache_get_value_name_int(0, "skin", PlayerInfo[playerid][pSkin]);
     cache_get_value_name_int(0, "admin", PlayerInfo[playerid][pAdmin]);
+    cache_get_value_name_int(0, "fraction", PlayerInfo[playerid][pFraction]);
+    cache_get_value_name_int(0, "fskin", PlayerInfo[playerid][pfSkin]);
+    cache_get_value_name_int(0, "frank", PlayerInfo[playerid][pFractionRank]);
+    cache_get_value_name_int(0, "fleader", PlayerInfo[playerid][pFractionLeader]);
     return CheckLoginPassword(playerid);
 }
 stock SaveAccount(playerid)
 {
     new query_string[512];
     format(query_string, sizeof(query_string),
-        "UPDATE `accounts` SET `name` = '%s', `password_salt` = '%s', `password_hash` = '%s', `money` = %d, `level` = %d, `exp` = %d, `skin` = %d, `admin` = %d WHERE `name` = '%s'",
+        "UPDATE `accounts` SET `name` = '%s', `password_salt` = '%s', `password_hash` = '%s', `money` = %d, `level` = %d, `exp` = %d, `skin` = %d, `admin` = %d, `fraction` = %d, `fskin` = %d, `frank` = %d, `fleader` = %d WHERE `name` = '%s'",
         PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
-        PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP], PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pName]);
+        PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP], PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pFraction], PlayerInfo[playerid][pfSkin],
+		PlayerInfo[playerid][pFractionRank], PlayerInfo[playerid][pFractionLeader], PlayerInfo[playerid][pName]);
 
     mysql_tquery(sampbd, query_string, "", "");
     return 1;
@@ -607,13 +804,18 @@ stock CreateNewAccount(playerid, password[])
     PlayerInfo[playerid][pMoney] = 500;
     PlayerInfo[playerid][pAdmin] = 0;
     PlayerInfo[playerid][pSkin] = 230;
+    PlayerInfo[playerid][pFraction] = 0;
+    PlayerInfo[playerid][pfSkin] = 0;
+    PlayerInfo[playerid][pFractionRank] = 0;
+    PlayerInfo[playerid][pFractionLeader] = 0;
     new query_string[512];
     format(query_string, sizeof(query_string),
-        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`)" \
-        "VALUES ('%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d')",
+        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`, `fraction`, `fskin`, `frank`, `fleader`)" \
+        "VALUES ('%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d')",
         PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
         PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP],
-        PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin]);
+        PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pFraction], PlayerInfo[playerid][pfSkin],
+		PlayerInfo[playerid][pFractionRank], PlayerInfo[playerid][pFractionLeader]);
     mysql_tquery(sampbd, query_string, "", "");
     GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
     SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
@@ -663,17 +865,17 @@ CMD:login(playerid, params[])
     GetPlayerName(playerid, player_name, sizeof(player_name));
     new query[256];
     format(query, sizeof(query),
-        "SELECT `id`, `name`, `password_salt`, `password_hash`, `money`, `level`, `exp` FROM `accounts` WHERE LOWER(`name`) = LOWER('%s') LIMIT 1",
+        "SELECT `id`, `name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`, `fraction`, `fskin`, `frank`, `fleader` FROM `accounts` WHERE LOWER(`name`) = LOWER('%s') LIMIT 1",
         player_name);
     mysql_tquery(sampbd, query, "UploadPlayerAccount", "i", playerid);
     return 1;
 }
-CMD:givevehid(playerid, params[])
+CMD:veh(playerid, params[])
 {
     new modelid;
     if (sscanf(params, "d", modelid))
     {
-        SendClientMessage(playerid, -1, "Использование: /givevehid [ID модели транспорта]");
+        SendClientMessage(playerid, -1, "Использование: /veh [ID модели транспорта]");
         return 0;
     }
     if (modelid < 400 || modelid > 611)
@@ -693,6 +895,23 @@ CMD:givevehid(playerid, params[])
     SendClientMessage(playerid, -1, "Транспорт создан и выдан вам.");
     return 1;
 }
+CMD:killme(playerid)
+{
+	SetPlayerHealth(playerid, 0);
+	return 1;
+}
+CMD:tpcor(playerid, params[])
+{
+    new Float:x, Float:y, Float:z, Float:angle;
+
+    // Парсим 4 аргумента через sscanf с разделителем запятая
+    if (sscanf(params, "ffff", x, y, z, angle)) return SendClientMessage(playerid, 0xFFFF0000, "Использование: /tpcor [x] [y] [z] [angle]");
+    SetPlayerPos(playerid, x, y, z);
+    SetPlayerFacingAngle(playerid, angle);
+    SendClientMessage(playerid, 0xFFFFFFFF, "Телепорт выполнен с углом.");
+    return 1;
+}
+
 ////////////////////////////////////////////////////
 stock removeobj(playerid)
 {
@@ -781,4 +1000,267 @@ stock removeobj(playerid)
 	CreateObject(1715, 2122.98608, -2276.69287, 19.64370,   0.00000, 0.00000, 105.00000);
 	CreateObject(1684, 2189.73486, -2252.07373, 13.95973,   0.00000, 0.00000, 45.00000);
 	CreateObject(3578, 2193.23145, -2256.62012, 13.20700,   0.00000, 0.00000, 45.00000);
+	RemoveBuildingForPlayer(playerid, 713, 1457.9375, -1620.6953, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 713, 1496.8672, -1707.8203, 13.4063, 0.25);
+	RemoveBuildingForPlayer(playerid, 1226, 1467.9844, -1727.6719, 16.4219, 0.25);
+	RemoveBuildingForPlayer(playerid, 1226, 1485.1719, -1727.6719, 16.4219, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1468.9844, -1713.5078, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1479.6953, -1716.7031, 15.6250, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1488.7656, -1713.7031, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1289, 1504.7500, -1711.8828, 13.5938, 0.25);
+	RemoveBuildingForPlayer(playerid, 1258, 1445.0078, -1704.7656, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 1258, 1445.0078, -1692.2344, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1445.8125, -1650.0234, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 673, 1457.7266, -1710.0625, 12.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 620, 1461.6563, -1707.6875, 11.8359, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1468.9844, -1704.6406, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 700, 1463.0625, -1701.5703, 13.7266, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1479.6953, -1702.5313, 15.6250, 0.25);
+	RemoveBuildingForPlayer(playerid, 673, 1457.5547, -1697.2891, 12.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1468.9844, -1694.0469, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1479.3828, -1692.3906, 15.6328, 0.25);
+	RemoveBuildingForPlayer(playerid, 620, 1461.1250, -1687.5625, 11.8359, 0.25);
+	RemoveBuildingForPlayer(playerid, 700, 1463.0625, -1690.6484, 13.7266, 0.25);
+	RemoveBuildingForPlayer(playerid, 641, 1458.6172, -1684.1328, 11.1016, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1457.2734, -1666.2969, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1468.9844, -1682.7188, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1471.4063, -1666.1797, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1479.3828, -1682.3125, 15.6328, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1458.2578, -1659.2578, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1449.8516, -1655.9375, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1477.9375, -1652.7266, 15.6328, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1479.6094, -1653.2500, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1457.3516, -1650.5703, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1454.4219, -1642.4922, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1467.8516, -1646.5938, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1472.8984, -1651.5078, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1465.9375, -1639.8203, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1231, 1466.4688, -1637.9609, 15.6328, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1449.5938, -1635.0469, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1467.7109, -1632.8906, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1232, 1465.8906, -1629.9766, 15.5313, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1472.6641, -1627.8828, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1479.4688, -1626.0234, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1232, 1465.8359, -1608.3750, 15.3750, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1488.7656, -1704.5938, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 700, 1494.2109, -1694.4375, 13.7266, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1488.7656, -1693.7344, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 620, 1496.9766, -1686.8516, 11.8359, 0.25);
+	RemoveBuildingForPlayer(playerid, 641, 1494.1406, -1689.2344, 11.1016, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1488.7656, -1682.6719, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1480.6094, -1666.1797, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1488.2266, -1666.1797, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1486.4063, -1651.3906, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1491.3672, -1646.3828, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1493.1328, -1639.4531, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1486.1797, -1627.7656, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1280, 1491.2188, -1632.6797, 13.4531, 0.25);
+	RemoveBuildingForPlayer(playerid, 1232, 1494.4141, -1629.9766, 15.5313, 0.25);
+	RemoveBuildingForPlayer(playerid, 1232, 1494.3594, -1608.3750, 15.3750, 0.25);
+	RemoveBuildingForPlayer(playerid, 1288, 1504.7500, -1705.4063, 13.5938, 0.25);
+	RemoveBuildingForPlayer(playerid, 1287, 1504.7500, -1704.4688, 13.5938, 0.25);
+	RemoveBuildingForPlayer(playerid, 1286, 1504.7500, -1695.0547, 13.5938, 0.25);
+	RemoveBuildingForPlayer(playerid, 1285, 1504.7500, -1694.0391, 13.5938, 0.25);
+	RemoveBuildingForPlayer(playerid, 673, 1498.9609, -1684.6094, 12.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1504.1641, -1662.0156, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1504.7188, -1670.9219, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 620, 1503.1875, -1621.1250, 11.8359, 0.25);
+	RemoveBuildingForPlayer(playerid, 673, 1501.2813, -1624.5781, 12.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 673, 1498.3594, -1616.9688, 12.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 712, 1508.4453, -1668.7422, 22.2578, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1505.6953, -1654.8359, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1508.5156, -1647.8594, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 625, 1513.2734, -1642.4922, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 1258, 1510.8906, -1607.3125, 13.6953, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -419.7500, -1412.9766, 23.1250, 0.25);
+	RemoveBuildingForPlayer(playerid, 17000, -406.9141, -1448.9688, 24.6406, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -378.7734, -1459.0234, 25.4766, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -384.2344, -1455.8281, 25.4766, 0.25);
+	RemoveBuildingForPlayer(playerid, 17005, -391.1406, -1432.9922, 32.4297, 0.25);
+	RemoveBuildingForPlayer(playerid, 17006, -394.9609, -1433.9688, 32.4453, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -396.8047, -1411.5469, 25.3906, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -408.5625, -1412.2891, 24.8281, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -368.7813, -1454.3672, 25.4766, 0.25);
+	RemoveBuildingForPlayer(playerid, 3425, -370.3750, -1446.9688, 35.9531, 0.25);
+	RemoveBuildingForPlayer(playerid, 17298, -366.6719, -1422.6875, 30.3750, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -372.1797, -1434.6094, 25.5156, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -369.1953, -1434.6094, 25.5156, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -366.2031, -1434.6094, 25.4375, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -362.4844, -1446.1250, 25.4766, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -361.8125, -1407.5391, 25.4766, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -360.7188, -1435.2578, 24.8984, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -363.2109, -1434.6094, 25.3984, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -358.7578, -1423.8203, 24.7500, 0.25);
+	RemoveBuildingForPlayer(playerid, 3276, -356.8594, -1412.5547, 25.2500, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -333.6953, -1434.8359, 15.4063, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -328.9688, -1434.8359, 15.1797, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -323.3828, -1434.8359, 14.9375, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -315.8438, -1434.8359, 14.7578, 0.25);
+	RemoveBuildingForPlayer(playerid, 1454, -307.7344, -1434.8359, 14.1719, 0.25);
+	CreateObject(1231, 1481.82080, -1626.61633, 15.80577,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1466.37964, -1639.49255, 15.77894,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1469.30542, -1631.34448, 15.76145,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1477.13879, -1626.75427, 15.78836,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1467.13770, -1644.12012, 15.79691,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1472.84912, -1628.21118, 15.77193,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1469.42993, -1648.00269, 15.79557,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1467.18445, -1634.91479, 15.77575,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1489.67834, -1647.90381, 15.78237,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1491.87830, -1644.06433, 15.76136,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1492.75293, -1639.59888, 15.78118,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1492.03601, -1635.27563, 15.79404,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1489.82898, -1631.22144, 15.80454,   0.00000, 0.00000, 0.00000);
+	CreateObject(1231, 1486.26794, -1628.20544, 15.81670,   0.00000, 0.00000, 0.00000);
+	CreateObject(2745, 1467.82458, -1706.27441, 14.25244,   0.00000, 0.00000, 91.00000);
+	CreateObject(3471, 1488.48840, -1680.77271, 14.40600,   0.00000, 0.00000, 180.00000);
+	CreateObject(2745, 1467.89038, -1715.02869, 14.26491,   0.00000, 0.00000, 91.00000);
+	CreateObject(2745, 1467.85608, -1698.04443, 14.28371,   0.00000, 0.00000, 91.00000);
+	CreateObject(2745, 1467.80505, -1689.86731, 14.27650,   0.00000, 0.00000, 91.00000);
+	CreateObject(2745, 1467.80774, -1680.71045, 14.26885,   0.00000, 0.00000, 91.00000);
+	CreateObject(3471, 1488.60327, -1689.79102, 14.42130,   0.00000, 0.00000, 180.00000);
+	CreateObject(3471, 1488.58484, -1697.98413, 14.31130,   0.00000, 0.00000, 180.00000);
+	CreateObject(3471, 1488.49353, -1706.25171, 14.36368,   0.00000, 0.00000, 180.00000);
+	CreateObject(3471, 1488.46704, -1714.86572, 14.34500,   0.00000, 0.00000, 180.00000);
+	CreateObject(3517, 1467.69812, -1685.63599, 24.36795,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1467.43323, -1693.74548, 24.23026,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1467.48499, -1701.68896, 24.18734,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1467.61475, -1710.56238, 24.24958,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1489.08105, -1710.63525, 24.15846,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1488.78992, -1685.49097, 23.59942,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1488.97083, -1693.90283, 23.85313,   0.00000, 0.00000, 0.00000);
+	CreateObject(3517, 1489.03516, -1701.93115, 24.21641,   0.00000, 0.00000, 0.00000);
+	CreateObject(1226, 1473.73987, -1727.75830, 16.42540,   0.00000, 0.00000, 90.00000);
+	CreateObject(1226, 1481.74719, -1727.83984, 16.45930,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.60925, -1716.85498, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.61401, -1712.73376, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.60962, -1708.61426, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.61511, -1704.49292, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.62256, -1700.36279, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.62939, -1696.26306, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.63110, -1692.15088, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.63220, -1688.04626, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.62463, -1683.93176, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1481.62720, -1679.80640, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1483.69385, -1677.73181, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1487.81812, -1677.72205, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1491.93262, -1677.71680, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1496.04858, -1677.71033, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1500.19775, -1677.70227, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1473.54651, -1716.83423, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.55835, -1712.70349, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.56348, -1708.59399, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.57202, -1704.48999, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.58130, -1700.38794, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.57385, -1696.27441, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.57947, -1692.13745, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.58484, -1687.99280, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.59338, -1683.85205, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1473.57312, -1679.72046, 13.65270,   0.00000, 0.00000, 90.00000);
+	CreateObject(970, 1471.51575, -1677.64856, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1467.37256, -1677.63391, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1463.23547, -1677.63379, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1459.10559, -1677.62854, 13.65270,   0.00000, 0.00000, 0.00000);
+	CreateObject(970, 1431.70984, -1690.43237, 14.98260,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1463.80505, -1682.60095, 13.63500,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1460.07520, -1682.61426, 13.63772,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1456.36536, -1682.58557, 13.66446,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1456.39087, -1714.33020, 13.60786,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1460.08032, -1714.30164, 13.62162,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1463.77478, -1714.26697, 13.62320,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1455.20837, -1691.03015, 13.62162,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.23730, -1698.02100, 13.62733,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.24329, -1701.52686, 13.63486,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.23633, -1704.96167, 13.61488,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.21301, -1708.48657, 13.61508,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.19116, -1694.57495, 13.65953,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1455.17859, -1687.50806, 13.66100,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.89392, -1708.22473, 13.61443,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.85242, -1704.72217, 13.59431,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.85632, -1701.17139, 13.62683,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.90076, -1693.93896, 13.60561,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.87366, -1697.43958, 13.60263,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.93140, -1690.41968, 13.62159,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1465.87561, -1686.89758, 13.59270,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1493.18872, -1682.63293, 13.63920,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1500.63135, -1714.25378, 13.59917,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1493.14722, -1714.30273, 13.60399,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1496.90869, -1682.63745, 13.62753,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1500.66858, -1682.64209, 13.61957,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1496.88672, -1714.26099, 13.59405,   0.00000, 0.00000, 0.00000);
+	CreateObject(997, 1502.66479, -1708.32690, 13.59539,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.67957, -1704.70532, 13.59526,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.70154, -1701.20508, 13.63518,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.66528, -1697.58521, 13.59526,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.70142, -1686.52771, 13.61522,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.67383, -1690.29053, 13.63518,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1502.68811, -1693.96899, 13.63519,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1491.99280, -1686.73865, 13.62537,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.00684, -1690.33801, 13.64081,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.01245, -1693.86230, 13.64081,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.01062, -1697.44348, 13.64732,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.00989, -1700.97229, 13.64732,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.01074, -1704.54797, 13.65434,   0.00000, 0.00000, 90.00000);
+	CreateObject(997, 1492.05530, -1708.14575, 13.63957,   0.00000, 0.00000, 90.00000);
+	CreateObject(658, 1497.07910, -1686.37451, 13.74151,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1496.45325, -1698.04395, 13.63011,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1496.44238, 13.70040, 13.70040,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1460.19958, -1688.15222, 13.54909,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1459.65344, -1700.71802, 13.64348,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1497.17188, -1708.42334, 13.76596,   0.00000, 0.00000, 0.00000);
+	CreateObject(658, 1459.54761, -1709.63989, 13.64888,   0.00000, 0.00000, 0.00000);
+	CreateObject(1226, 1471.83716, -1710.28662, 16.83700,   0.00000, 0.00000, 180.00000);
+	CreateObject(1226, 1471.86084, -1701.50500, 16.89020,   0.00000, 0.00000, 180.00000);
+	CreateObject(1226, 1471.83313, -1693.36475, 16.90880,   0.00000, 0.00000, 180.00000);
+	CreateObject(1226, 1471.81580, -1685.27783, 16.89530,   0.00000, 0.00000, 180.00000);
+	CreateObject(1226, 1484.54309, -1701.85291, 16.93432,   0.00000, 0.00000, 0.00000);
+	CreateObject(1226, 1484.52002, -1685.50452, 16.91032,   0.00000, 0.00000, 0.00000);
+	CreateObject(1226, 1484.54736, -1710.59875, 16.90081,   0.00000, 0.00000, 0.00000);
+	CreateObject(1226, 1484.44629, -1694.28918, 16.97775,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1485.53162, -1689.86096, 13.68132,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1485.56543, -1698.01721, 13.66698,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1485.51111, -1706.18396, 13.68704,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1485.59924, -1714.88013, 13.64702,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1485.65869, -1680.95020, 13.71475,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1470.88733, -1680.68652, 13.74771,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1470.75916, -1689.87219, 13.66757,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1470.70459, -1697.88562, 13.71723,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1470.75806, -1706.19727, 13.64711,   0.00000, 0.00000, 0.00000);
+	CreateObject(15038, 1470.57263, -1715.50061, 13.65492,   0.00000, 0.00000, 0.00000);
+	CreateObject(12925, -323.07907, -1511.90417, 12.63024,   10.00000, 0.00000, 90.00000);
+	CreateObject(5838, -314.88931, -1529.01331, 28.71180,   0.00000, 4.00000, 0.00000);
+	CreateObject(1431, -320.11209, -1503.55554, 12.43670,   0.00000, 6.00000, 0.00000);
+	CreateObject(1431, -322.24496, -1503.37134, 12.63680,   0.00000, 6.00000, 0.00000);
+	CreateObject(1431, -324.28125, -1503.23877, 12.95230,   0.00000, 6.00000, 0.00000);
+	CreateObject(1458, -326.84229, -1502.01123, 12.85609,   0.00000, 0.00000, 180.00000);
+	CreateObject(17039, -321.63528, -1493.63794, 11.24389,   10.00000, 0.00000, 90.00000);
+	CreateObject(14875, -315.01999, -1497.57654, 11.34367,   0.00000, 10.00000, 0.00000);
+	CreateObject(14875, -317.74026, -1501.84180, 11.80646,   0.00000, 10.00000, 0.00000);
+	CreateObject(1454, -318.22736, -1516.01379, 12.47842,   0.00000, 0.00000, 0.00000);
+	CreateObject(1454, -318.25113, -1514.74707, 12.41928,   0.00000, 0.00000, 0.00000);
+	CreateObject(1454, -318.32166, -1513.42041, 12.43463,   0.00000, 0.00000, 0.00000);
+	CreateObject(1454, -318.30228, -1512.11011, 12.41258,   0.00000, 0.00000, 0.00000);
+	CreateObject(1454, -318.39191, -1509.51611, 12.35224,   0.00000, 0.00000, 0.00000);
+	CreateObject(1454, -318.35065, -1510.77551, 12.38813,   0.00000, 0.00000, 0.00000);
+	CreateObject(1453, -318.40930, -1498.49658, 11.99632,   -5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -317.76913, -1498.40857, 11.97000,   -5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -318.28763, -1497.82446, 12.09872,   -5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -325.31046, -1498.86011, 12.89803,   5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -318.51254, -1488.44043, 12.06908,   0.00000, 0.00000, 0.00000);
+	CreateObject(1453, -325.06631, -1498.20642, 12.89619,   5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -324.54724, -1498.91675, 12.83517,   5.00000, 0.00000, 0.00000);
+	CreateObject(1453, -317.64676, -1488.29297, 12.00864,   0.00000, 0.00000, 0.00000);
+	CreateObject(1453, -318.18713, -1488.94763, 12.03409,   0.00000, 0.00000, 0.00000);
+	CreateObject(1453, -325.16898, -1488.63196, 13.09400,   -15.00000, 0.00000, 0.00000);
+	CreateObject(1453, -325.14175, -1489.04016, 13.00553,   -10.00000, 0.00000, 0.00000);
+	CreateObject(1453, -324.61313, -1488.56604, 12.89699,   -10.00000, 0.00000, 0.00000);
+	CreateObject(1454, -323.54321, -1488.21228, 12.25094,   5.00000, 0.00000, 90.00000);
+	CreateObject(1454, -321.88763, -1488.33130, 12.10375,   5.00000, 0.00000, 90.00000);
+	CreateObject(1454, -320.09488, -1488.82703, 12.15550,   0.00000, 0.00000, 90.00000);
+	CreateObject(1454, -319.74814, -1498.34973, 12.06310,   5.00000, 0.00000, 90.00000);
+	CreateObject(1454, -321.40875, -1498.49280, 12.01835,   5.00000, 0.00000, 90.00000);
+	CreateObject(1454, -323.05798, -1498.51819, 12.17315,   5.00000, 0.00000, 90.00000);
+	CreateObject(17324, -315.88910, -1549.12744, 12.38780,   10.50000, 0.00000, 90.00000);
+	CreateObject(3286, -305.79611, -1539.41687, 12.79577,   0.00000, 10.00000, 0.00000);
+	CreateObject(3286, -308.12680, -1558.25195, 12.98760,   0.00000, 10.00000, 0.00000);
+
 }
