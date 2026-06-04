@@ -14,6 +14,7 @@ new MySQL:sampbd;
 //////////////////
 
 #define SCM                         SendClientMessage
+#define SCMTA                       SendClientMessageToAll
 #define SALT_SIZE 16
 #define HASH_SIZE 65
 #define MAX_PASS_LENGTH 30
@@ -29,6 +30,9 @@ new MySQL:sampbd;
 #define DIALOG_INFO 1000
 #define DIALOG_INFO_2 1001
 #define DIALOG_RENT_BIKE 2000
+#define DIALOG_ALOGIN 3005
+#define DIALOG_APANEL 3006
+#define DIALOG_ALOGIN_SET 3007
 
 #define BIKE_MODEL 509
 #define RENT_DURATION 300000
@@ -48,6 +52,7 @@ new MySQL:sampbd;
 #define MAX_GROVE_VEHICLES 10
 #define KEY_ENTER_VEHICLE 0x00000100
 
+#define DIALOG_REGISTER_SKIN 3004
 ///////////////////
 main() {}
 #pragma warning disable 239
@@ -69,11 +74,13 @@ enum pInfo
     pFraction,
     pfSkin,
     pFractionRank,
-    pFractionLeader
+    pFractionLeader,
+	pGruzExp,
+    pFermaExp,
+    pAdminSalt[16],
+    pAdminHash[65]
 }
 new PlayerInfo[MAX_PLAYERS][pInfo];
-
-// Временные переменные для работ (замена медленным PVar)
 enum pTempJobInfo
 {
     bool:tJobGruz,
@@ -87,6 +94,7 @@ enum pTempJobInfo
     bool:tFermaInstrument,
     Float:tFermaDrop[3],
 
+    tSessionItems,
     tJobSalary
 }
 new TempJob[MAX_PLAYERS][pTempJobInfo];
@@ -128,8 +136,11 @@ new Float:FermaDropPoints[10][3] = {
 
 new grove[2];
 new groveVehicles[MAX_GROVE_VEHICLES];
-new Text:LOGO;
-
+new Text:SERVER_LOGO[2];
+new PlayerText:Speedo_TD[MAX_PLAYERS];
+new speedoTimer;
+new PlayerText3D:JobLabel[MAX_PLAYERS] = {PlayerText3D:INVALID_3DTEXT_ID, ...};
+new bool:AdminLogged[MAX_PLAYERS];
 ////////////////////
 public OnGameModeInit()
 {
@@ -138,7 +149,7 @@ public OnGameModeInit()
     EnableStuntBonusForAll(0);
     DisableInteriorEnterExits();
 
-    SendRconCommand("hostname 0.47 Project v0.0.1c (alpha)");
+    SendRconCommand("hostname 0.47 Project v0.0.2a (alpha)");
     SetGameModeText(":: test ::");
 
     infoPickup[0] = CreatePickup(18631, 2, INFO_PICKUP_X, INFO_PICKUP_Y, INFO_PICKUP_Z, 9999);
@@ -168,16 +179,27 @@ public OnGameModeInit()
     groveVehicles[4] = CreateVehicle(400,2478.1575,-1653.7532,13.4847, 89.8375, 229, 229, 100);
     groveVehicles[5] = CreateVehicle(413,2463.2407,-1677.9370,13.6048, 31.3153, 229, 229, 100);
 
-    LOGO = TextDrawCreate(549.000000, 9.625000, "0.47 Project");
-    TextDrawLetterSize(LOGO, 0.321000, 1.109999);
-    TextDrawAlignment(LOGO, 1);
-    TextDrawSetShadow(LOGO, 1);
-    TextDrawSetOutline(LOGO, 0);
-    TextDrawBackgroundColor(LOGO, 51);
-    TextDrawFont(LOGO, 3);
-    TextDrawSetProportional(LOGO, 1);
-    SetTimer("ChangeColorEffect", 5000, true);
+    SERVER_LOGO[0] = TextDrawCreate(610.000000, 12.000000, "0.47 PROJECT");
+    TextDrawLetterSize(SERVER_LOGO[0], 0.450000, 1.600000);
+    TextDrawAlignment(SERVER_LOGO[0], 3);
+    TextDrawColor(SERVER_LOGO[0], 0xFFFFFFFF);
+    TextDrawSetShadow(SERVER_LOGO[0], 0);
+    TextDrawSetOutline(SERVER_LOGO[0], 1);
+    TextDrawBackgroundColor(SERVER_LOGO[0], 0x000000FF);
+    TextDrawFont(SERVER_LOGO[0], 3);
+    TextDrawSetProportional(SERVER_LOGO[0], 1);
 
+    SERVER_LOGO[1] = TextDrawCreate(610.000000, 28.000000, "MOBILE ALPHA");
+    TextDrawLetterSize(SERVER_LOGO[1], 0.180000, 0.800000);
+    TextDrawAlignment(SERVER_LOGO[1], 3);
+    TextDrawColor(SERVER_LOGO[1], 0xAAAAAAFF);
+    TextDrawSetShadow(SERVER_LOGO[1], 0);
+    TextDrawSetOutline(SERVER_LOGO[1], 1);
+    TextDrawBackgroundColor(SERVER_LOGO[1], 0x000000FF);
+    TextDrawFont(SERVER_LOGO[1], 1);
+    TextDrawSetProportional(SERVER_LOGO[1], 1);
+    ManualVehicleEngineAndLights();
+    speedoTimer = SetTimer("UpdateSpeedometer", 250, true);
     return 1;
 }
 
@@ -185,6 +207,7 @@ public OnGameModeExit()
 {
     foreach(new i : Player) SaveAccount(i);
     mysql_close();
+    KillTimer(speedoTimer);
     return 1;
 }
 
@@ -199,24 +222,28 @@ public OnPlayerConnect(playerid)
 {
     IsPlayerLoggedIn[playerid] = false;
     IsPlayerRegistered[playerid] = false;
-
-    ResetPlayerJobInfo(playerid); // Сбрасываем временные переменные при коннекте
-
-    TextDrawShowForPlayer(playerid, LOGO);
+    ResetPlayerJobInfo(playerid);
+	TextDrawShowForPlayer(playerid, SERVER_LOGO[0]);
+    TextDrawShowForPlayer(playerid, SERVER_LOGO[1]);
     SetPlayerVirtualWorld(playerid, 9999);
     SetPlayerPos(playerid, VIRTUAL_SPAWN[0], VIRTUAL_SPAWN[1], VIRTUAL_SPAWN[2]);
     SetPlayerFacingAngle(playerid, VIRTUAL_SPAWN[3]);
     SetPlayerSkin(playerid, 3);
-
     new player_name[MAX_PLAYER_NAME], query[256];
     GetPlayerName(playerid, player_name, sizeof(player_name));
-
-    // Безопасное форматирование запроса с %e
     mysql_format(sampbd, query, sizeof(query), "SELECT `id` FROM `accounts` WHERE `name` = '%e' LIMIT 1", player_name);
     mysql_tquery(sampbd, query, "find_table", "i", playerid);
-
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Пожалуйста, зарегистрируйтесь (/register) или войдите (/login).");
     removeobj(playerid);
+    Speedo_TD[playerid] = CreatePlayerTextDraw(playerid, 510.000000, 420.000000, "0 km/h | Engine: OFF");
+    PlayerTextDrawLetterSize(playerid, Speedo_TD[playerid], 0.250000, 1.000000);
+    PlayerTextDrawAlignment(playerid, Speedo_TD[playerid], 1);
+    PlayerTextDrawColor(playerid, Speedo_TD[playerid], 0xFFFFFFFF);
+    PlayerTextDrawUseBox(playerid, Speedo_TD[playerid], 1);
+    PlayerTextDrawBoxColor(playerid, Speedo_TD[playerid], 0x00000066);
+    PlayerTextDrawTextSize(playerid, Speedo_TD[playerid], 615.000000, 0.000000);
+    PlayerTextDrawFont(playerid, Speedo_TD[playerid], 1);
+    PlayerTextDrawSetProportional(playerid, Speedo_TD[playerid], 1);
     return 1;
 }
 
@@ -232,13 +259,18 @@ public OnPlayerDisconnect(playerid, reason)
             PlayerBikeTimer[playerid] = INVALID_TIMER;
         }
     }
-
-    ResetPlayerJobInfo(playerid); // Очищаем память работ
-
+    ResetPlayerJobInfo(playerid);
     LoginPassword[playerid][0] = '\0';
     IsPlayerLoggedIn[playerid] = false;
     IsPlayerRegistered[playerid] = false;
     SaveAccount(playerid);
+    PlayerTextDrawDestroy(playerid, Speedo_TD[playerid]);
+	if (JobLabel[playerid] != PlayerText3D:INVALID_3DTEXT_ID)
+	{
+	    DeletePlayer3DTextLabel(playerid, JobLabel[playerid]);
+	    JobLabel[playerid] = PlayerText3D:INVALID_3DTEXT_ID;
+	}
+	AdminLogged[playerid] = false;
     return 1;
 }
 
@@ -265,9 +297,108 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
         else SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аренда отменена.");
         return 1;
     }
+    if (dialogid == DIALOG_REGISTER_SKIN)
+    {
+        if (!response)
+        {
+            ShowPlayerDialog(playerid, DIALOG_REGISTER_SKIN, DIALOG_STYLE_LIST, "{808000}Выбор начальной одежды",
+                "1. Бездомный (в белой майке)\n2. Бездомный (с коробкой на голове)\n3. Старый бездомный\n4. Бездомный (в шапке)",
+                "Выбрать", "");
+            return 1;
+        }
+        switch (listitem)
+        {
+            case 0: PlayerInfo[playerid][pSkin] = 78;
+            case 1: PlayerInfo[playerid][pSkin] = 137;
+            case 2: PlayerInfo[playerid][pSkin] = 230;
+            case 3: PlayerInfo[playerid][pSkin] = 212;
+        }
+        SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+        SaveAccount(playerid);
+        SpawnPlayer(playerid);
+        SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Добро пожаловать на сервер! Вы успешно выбрали внешний вид.");
+        return 1;
+    }
+	if (dialogid == DIALOG_ALOGIN_SET)
+    {
+        if (!response) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы отменили создание пароля.");
+        if (strlen(inputtext) < 4) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Пароль должен состоять минимум из 4 символов!");
+        new salt[16], hash[65], query[256];
+        format(salt, sizeof(salt), "as_%d%d", playerid, random(9999));
+        SHA256_PassHash(inputtext, salt, hash, sizeof(hash));
+        format(PlayerInfo[playerid][pAdminSalt], 16, "%s", salt);
+        format(PlayerInfo[playerid][pAdminHash], 65, "%s", hash);
+        mysql_format(sampbd, query, sizeof(query), "UPDATE `accounts` SET `admin_salt` = '%e', `admin_hash` = '%e' WHERE `name` = '%e'",
+            PlayerInfo[playerid][pAdminSalt], PlayerInfo[playerid][pAdminHash], PlayerInfo[playerid][pName]);
+        mysql_tquery(sampbd, query, "", "");
+        AdminLogged[playerid] = true;
+        SCM(playerid, -1, "{808000}[Админ]:{00FF00} Пароль успешно установлен и сохранен! Вы авторизованы.");
+        return 1;
+    }
+	if (dialogid == DIALOG_ALOGIN)
+    {
+        if (!response) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы отменили авторизацию.");
+        new check_hash[65];
+        SHA256_PassHash(inputtext, PlayerInfo[playerid][pAdminSalt], check_hash, sizeof(check_hash));
+        if (!strcmp(check_hash, PlayerInfo[playerid][pAdminHash], false))
+        {
+            AdminLogged[playerid] = true;
+            SCM(playerid, -1, "{808000}[Админ]:{00FF00} Вы успешно авторизовались! Доступна команда /apanel");
+        }
+        else
+        {
+            SCM(playerid, -1, "{808000}[Админ]:{FF0000} Неверный пароль!");
+            ShowPlayerDialog(playerid, DIALOG_ALOGIN, DIALOG_STYLE_PASSWORD, "{808000}Админ-авторизация",
+                "{FF0000}Пароль введен неверно!\n\n{FFFFFF}Повторите попытку ввода пароля:", "Войти", "Отмена");
+        }
+        return 1;
+    }
+	if (dialogid == DIALOG_APANEL)
+    {
+        if (!response) return 1;
+        switch (listitem)
+        {
+            case 0:
+            {
+                new string[128];
+                format(string, sizeof(string), "{808000}[Админ]:{FFFFFF} Ваш текущий уровень прав: {00FF00}%d", PlayerInfo[playerid][pAdmin]);
+                SCM(playerid, -1, string);
+            }
+            case 1:
+            {
+                SetPlayerInterior(playerid, 0);
+                SetPlayerVirtualWorld(playerid, 0);
+
+                if (IsPlayerInAnyVehicle(playerid) && GetPlayerState(playerid) == PLAYER_STATE_DRIVER)
+                    SetVehiclePos(GetPlayerVehicleID(playerid), 0.0, 0.0, 3.0);
+                else
+                    SetPlayerPos(playerid, 0.0, 0.0, 3.0);
+
+                SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Вы телепортировались в центр карты.");
+            }
+            case 2:
+            {
+                SetPlayerHealth(playerid, 100.0);
+                SetPlayerArmour(playerid, 100.0);
+                SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Вы успешно восстановили HP и Броню.");
+            }
+            case 3:
+            {
+                for(new i = 0; i < 50; i++) SCMTA(-1, " ");
+                SCMTA(-1, "{808000}[Внимание]:{FFFFFF} Чат был очищен администратором.");
+            }
+            case 4:
+            {
+                PlayerInfo[playerid][pMoney] += 100000;
+                GivePlayerMoney(playerid, 100000);
+                SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Вы выдали себе {00FF00}100.000$");
+            }
+        }
+		PC_EmulateCommand(playerid, "/apanel");
+        return 1;
+    }
     return 0;
 }
-
 public OnPlayerText(playerid, text[])
 {
     if (!IsPlayerLoggedIn[playerid])
@@ -275,44 +406,29 @@ public OnPlayerText(playerid, text[])
         SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете писать в чат, пока не войдёте в аккаунт.");
         return 0;
     }
-
     new Float:x, Float:y, Float:z;
     GetPlayerPos(playerid, x, y, z);
-
     new msg[144], player_name[MAX_PLAYER_NAME];
     GetPlayerName(playerid, player_name, sizeof(player_name));
     format(msg, sizeof(msg), "%s: %s", player_name, text);
-
-    // Оптимизированный цикл локального чата
     foreach(new target : Player)
     {
         if (!IsPlayerLoggedIn[target]) continue;
-
-        // Быстрая проверка на виртуальный мир/интерьер (опционально, но хорошая практика)
         if (GetPlayerVirtualWorld(playerid) != GetPlayerVirtualWorld(target)) continue;
-
-        if (GetPlayerDistanceFromPoint(target, x, y, z) <= LOCAL_CHAT_RADIUS)
-        {
-            SendClientMessage(target, 0xFFFFFFFF, msg);
-        }
+        if (GetPlayerDistanceFromPoint(target, x, y, z) <= LOCAL_CHAT_RADIUS) SendClientMessage(target, 0xFFFFFFFF, msg);
     }
     return 0;
 }
-
-// ПЕРЕХВАТЧИК КОМАНД (Pawn.CMD). Заменяет OnPlayerCommandText.
 public PC_OnPlayerCommandReceived(playerid, cmd[], params[])
 {
     if (!IsPlayerLoggedIn[playerid])
     {
-        // Разрешаем только логин и регу
         if (strcmp(cmd, "login", true) == 0 || strcmp(cmd, "register", true) == 0) return 1;
-
         SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Сначала зарегистрируйтесь или войдите.");
         return 0; // Блокируем выполнение остальных команд
     }
     return 1; // Разрешаем выполнение
 }
-
 public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
 {
     foreach(new i : Player)
@@ -363,53 +479,76 @@ public OnPlayerEnterCheckpoint(playerid)
         }
         else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя брать мешок в транспорте!");
     }
-    // ГРУЗЧИК - СДАЧА
+	// ГРУЗЧИК - СДАЧА МЕШКА
     else if (IsPlayerInRangeOfPoint(playerid, 2.0, TempJob[playerid][tGruzDrop][0], TempJob[playerid][tGruzDrop][1], TempJob[playerid][tGruzDrop][2]) && TempJob[playerid][tGruzBagTaken])
     {
         if (!IsPlayerInAnyVehicle(playerid))
         {
-            TempJob[playerid][tJobSalary] += 50;
-            RemovePlayerAttachedObject(playerid, 2);
+            PlayerInfo[playerid][pGruzExp] += 15;
+            new exp = PlayerInfo[playerid][pGruzExp];
+            new level = 1;
+            if (exp >= 900) level = 3;
+            else if (exp >= 300) level = 2;
+            new salary = 50;
+            if (level == 3) salary = 100;
+            else if (level == 2) salary = 75;
+            TempJob[playerid][tJobSalary] += salary;
             TempJob[playerid][tGruzBagTaken] = false;
+            RemovePlayerAttachedObject(playerid, 2);
             SetPlayerCheckpoint(playerid, GRUZ_BAG_X, GRUZ_BAG_Y, GRUZ_BAG_Z, 2.0);
             ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
+            if (JobLabel[playerid] != PlayerText3D:INVALID_3DTEXT_ID) DeletePlayer3DTextLabel(playerid, JobLabel[playerid]);
+            new bubble[128];
+            format(bubble, sizeof(bubble), "{00FF00}+$%d\n{FFFFFF}Опыт: %d (Уровень %d)", salary, exp, level);
+            JobLabel[playerid] = CreatePlayer3DTextLabel(playerid, bubble, 0xFFFFFFFF, TempJob[playerid][tGruzDrop][0], TempJob[playerid][tGruzDrop][1], TempJob[playerid][tGruzDrop][2] + 1.0, 15.0);
+            SetTimerEx("DeleteJobLabel", 3000, false, "i", playerid);
+            new string[128];
+            format(string, sizeof(string), "{808000}[Грузчик]:{FFFFFF} Ходка выполнена! Заработано: {00FF00}$%d {FFFFFF}| За смену: {00FF00}$%d", salary, TempJob[playerid][tJobSalary]);
+            SCM(playerid, -1, string);
         }
-        else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать мешок в транспорте!");
+        else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать груз в транспорте!");
     }
 	// ФЕРМЕР - ВЗЯТИЕ
     if (IsPlayerInRangeOfPoint(playerid, 2.0, TempJob[playerid][tFermaDrop][0], TempJob[playerid][tFermaDrop][1], TempJob[playerid][tFermaDrop][2]) && TempJob[playerid][tJobFerma] && TempJob[playerid][tFermaInstrument] && !TempJob[playerid][tFermaBagTaken])
     {
         if (!IsPlayerInAnyVehicle(playerid))
         {
-            // Морозим игрока, чтобы он не бегал во время выкапывания куста
             TogglePlayerControllable(playerid, 0);
-
-            // Включаем анимацию посадки/выкапывания
             ApplyAnimation(playerid, "BOMBER", "BOM_Plant", 4.1, 0, 0, 0, 0, 0, 1);
-
-            // Запускаем таймер на 1.2 секунды
             SetTimerEx("GiveFermaBush", 1200, false, "i", playerid);
         }
         else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя собирать урожай в транспорте!");
     }
-	// ФЕРМЕР - СДАЧА
+	// ФЕРМЕР - СДАЧА КУСТА
     else if (IsPlayerInRangeOfPoint(playerid, 2.0, FERMA_BAG_X, FERMA_BAG_Y, FERMA_BAG_Z) && TempJob[playerid][tFermaBagTaken])
     {
         if (!IsPlayerInAnyVehicle(playerid))
         {
-            TempJob[playerid][tJobSalary] += 50;
+            PlayerInfo[playerid][pFermaExp] += 15;
+            new exp = PlayerInfo[playerid][pFermaExp];
+            new level = 1;
+            if (exp >= 900) level = 3;
+            else if (exp >= 300) level = 2;
+            new salary = 50;
+            if (level == 3) salary = 100;
+            else if (level == 2) salary = 75;
+            TempJob[playerid][tJobSalary] += salary;
             TempJob[playerid][tFermaBagTaken] = false;
-
             RemovePlayerAttachedObject(playerid, 2);
-            ClearAnimations(playerid); // <--- ВОЗВРАЩАЕМ РУКИ В НОРМУ
-
+            ClearAnimations(playerid);
             FermaRand(playerid);
             SetPlayerCheckpoint(playerid, TempJob[playerid][tFermaDrop][0], TempJob[playerid][tFermaDrop][1], TempJob[playerid][tFermaDrop][2], 2.0);
-            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Готово! Идите к следующему кусту.");
-
+            if (JobLabel[playerid] != PlayerText3D:INVALID_3DTEXT_ID) DeletePlayer3DTextLabel(playerid, JobLabel[playerid]);
+            new bubble[128];
+            format(bubble, sizeof(bubble), "{00FF00}+$%d\n{FFFFFF}Опыт: %d (Уровень %d)", salary, exp, level);
+            JobLabel[playerid] = CreatePlayer3DTextLabel(playerid, bubble, 0xFFFFFFFF, FERMA_BAG_X, FERMA_BAG_Y, FERMA_BAG_Z + 1.0, 15.0);
+            SetTimerEx("DeleteJobLabel", 3000, false, "i", playerid);
+            new string[128];
+            format(string, sizeof(string), "{808000}[Ферма]:{FFFFFF} Урожай сдан! Заработано: {00FF00}$%d {FFFFFF}| За смену: {00FF00}$%d", salary, TempJob[playerid][tJobSalary]);
+            SCM(playerid, -1, string);
             ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1, 1);
         }
-        else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать куст в транспорте!");
+        else SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Нельзя сдавать урожай в транспорте!");
     }
     return 1;
 }
@@ -418,7 +557,7 @@ public OnPlayerPickUpPickup(playerid, pickupid)
 {
     if (pickupid == infoPickup[0])
     {
-        ShowPlayerDialog(playerid, DIALOG_INFO, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nИсходный код: https://github.com/GADGETNiK/0.47-projectrnrnНажмите ОК для закрытия.", "ОК", "");
+        ShowPlayerDialog(playerid, DIALOG_INFO, DIALOG_STYLE_MSGBOX, "Информация", "Здравствуйте, вы на проекте 0.47 Project.\r\nИсходный код: https://github.com/GADGETN1K/0.47-project\r\n\r\nНажмите ОК для закрытия.", "ОК", "");
         return 1;
     }
     if (pickupid == infoPickup[1])
@@ -500,13 +639,18 @@ public OnPlayerPickUpPickup(playerid, pickupid)
     }
     return 0;
 }
-
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 {
-    // Если игрок нажал прыжок или удар
+    if ((newkeys & KEY_SUBMISSION) && !(oldkeys & KEY_SUBMISSION))
+    {
+        if (GetPlayerState(playerid) == PLAYER_STATE_DRIVER)
+        {
+            ToggleVehicleEngine(playerid);
+            return 1;
+        }
+    }
     if (((newkeys & KEY_JUMP) && !(oldkeys & KEY_JUMP)) || (newkeys & KEY_FIRE))
     {
-        // Если это грузчик
         if (TempJob[playerid][tGruzBagTaken])
         {
             SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы уронили мешок!");
@@ -515,21 +659,18 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
             SetPlayerCheckpoint(playerid, GRUZ_BAG_X, GRUZ_BAG_Y, GRUZ_BAG_Z, 2.0);
             ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
         }
-        // Если это фермер
         else if (TempJob[playerid][tFermaBagTaken])
         {
             SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы уронили куст!");
             RemovePlayerAttachedObject(playerid, 2);
             TempJob[playerid][tFermaBagTaken] = false;
-
-            // Возвращаем чекпоинт обратно к тому кусту, который он не донес
             SetPlayerCheckpoint(playerid, TempJob[playerid][tFermaDrop][0], TempJob[playerid][tFermaDrop][1], TempJob[playerid][tFermaDrop][2], 2.0);
             ApplyAnimation(playerid, "PED", "IDLE_tired", 4.1, 0, 1, 1, 0, 1);
         }
     }
+
     return 1;
 }
-
 public OnPlayerSpawn(playerid)
 {
     PreloadAnimLib(playerid, "CARRY");
@@ -552,7 +693,6 @@ public OnPlayerSpawn(playerid)
     }
     return 1;
 }
-
 public OnPlayerStateChange(playerid, newstate, oldstate)
 {
     if (newstate == PLAYER_STATE_DRIVER)
@@ -568,19 +708,17 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
             }
         }
     }
-
     if (newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER)
     {
-		if (TempJob[playerid][tGruzBagTaken] || TempJob[playerid][tFermaBagTaken])
+        if (TempJob[playerid][tGruzBagTaken] || TempJob[playerid][tFermaBagTaken])
         {
-            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вас уволили.{FF0000} Причина: Попытка сесть в транспорт с грузом/кустом.");
-            RemovePlayerAttachedObject(playerid, 2); // Убираем объект из рук
+            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вас уволили.{FF0000} Причина: Попытка сесть в транспорт с кустом.");
+            RemovePlayerAttachedObject(playerid, 2);
             DisablePlayerCheckpoint(playerid);
             SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
-            ResetPlayerJobInfo(playerid); // Очищаем данные о работе
+            ResetPlayerJobInfo(playerid);
             return 0;
         }
-
         new vehicleid = GetPlayerVehicleID(playerid);
         if (IsFractionVehicle(vehicleid, FRACTION_GROVE) && PlayerInfo[playerid][pFraction] != FRACTION_GROVE)
         {
@@ -589,25 +727,115 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
             return 0;
         }
     }
+    if (newstate == PLAYER_STATE_DRIVER)
+    {
+        new vehicleid = GetPlayerVehicleID(playerid);
+        new model = GetVehicleModel(vehicleid);
+        if (model == 509 || model == 481 || model == 510)
+        {
+            new engine, lights, alarm, doors, bonnet, boot, objective;
+            GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+            SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_ON, lights, alarm, doors, bonnet, boot, objective);
+        }
+        PlayerTextDrawShow(playerid, Speedo_TD[playerid]);
+    }
+    if (oldstate == PLAYER_STATE_DRIVER)
+    {
+        PlayerTextDrawHide(playerid, Speedo_TD[playerid]);
+    }
     return 1;
 }
-
 ///////////////////// СТОКИ И ФУНКЦИИ /////////////////////
+forward DeleteJobLabel(playerid);
+public DeleteJobLabel(playerid)
+{
+    if (JobLabel[playerid] != PlayerText3D:INVALID_3DTEXT_ID)
+    {
+        DeletePlayer3DTextLabel(playerid, JobLabel[playerid]);
+        JobLabel[playerid] = PlayerText3D:INVALID_3DTEXT_ID;
+    }
+    return 1;
+}
+stock ResetPlayerJobInfo(playerid)
+{
+    TempJob[playerid][tJobGruz] = false;
+    TempJob[playerid][tGruzBagTaken] = false;
+    TempJob[playerid][tGruzSkin] = 0;
+    TempJob[playerid][tJobFerma] = false;
+    TempJob[playerid][tFermaBagTaken] = false;
+    TempJob[playerid][tFermaInstrument] = false;
+    TempJob[playerid][tFermaSkin] = 0;
+    TempJob[playerid][tJobSalary] = 0;
+}
+stock ToggleVehicleEngine(playerid)
+{
+    if (GetPlayerState(playerid) != PLAYER_STATE_DRIVER) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы должны находиться на месте водителя.");
+    new vehicleid = GetPlayerVehicleID(playerid);
+    new model = GetVehicleModel(vehicleid);
+    if (model == 509 || model == 481 || model == 510) return 1;
+    new engine, lights, alarm, doors, bonnet, boot, objective;
+    GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+    if (engine == VEHICLE_PARAMS_ON)
+    {
+        SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_OFF, lights, alarm, doors, bonnet, boot, objective);
+        SCM(playerid, -1, "{808000}[VEHICLE]:{FFFFFF} Двигатель заглох.");
+    }
+    else
+    {
+        SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_ON, lights, alarm, doors, bonnet, boot, objective);
+        SCM(playerid, -1, "{808000}[VEHICLE]:{00FF00} Двигатель успешно заведен.");
+    }
+    return 1;
+}
+forward UpdateSpeedometer();
+public UpdateSpeedometer()
+{
+    new Float:vx, Float:vy, Float:vz, speed, vehicleid;
+    new engine, lights, alarm, doors, bonnet, boot, objective;
+    new td_info[64];
+    foreach(new i : Player)
+    {
+        if (IsPlayerLoggedIn[i] && GetPlayerState(i) == PLAYER_STATE_DRIVER)
+        {
+            vehicleid = GetPlayerVehicleID(i);
+            GetVehicleVelocity(vehicleid, vx, vy, vz);
+            speed = floatround(floatsqroot(vx*vx + vy*vy + vz*vz) * 175.0);
+            GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+            format(td_info, sizeof(td_info), "~w~%d ~g~km/h ~w~| Engine: %s", speed, (engine == VEHICLE_PARAMS_ON) ? ("~g~ON") : ("~r~OFF"));
+            PlayerTextDrawSetString(i, Speedo_TD[i], td_info);
+        }
+    }
+    return 1;
+}
+stock GetVehicleName(vehicleid, name[], len)
+{
+    new model = GetVehicleModel(vehicleid);
+    new const vehNames[][] = {
+        "Landstalker", "Bravura", "Buffalo", "Linerunner", "Perennial", "Sentinel", "Dumper", "Firetruck", "Trashmaster", "Stretch", "Manana", "Infernus",
+        "Voodoo", "Pony", "Mule", "Cheetah", "Ambulance", "Leviathan", "Moonbeam", "Esperanto", "Taxi", "Washington", "Bobcat", "Mr Whoopee", "BF Injection",
+        "Hunter", "Premier", "Enforcer", "Securicar", "Banshee", "Predator", "Bus", "Rhino", "Barracks", "Hotknife", "Trailer", "Previon", "Coach", "Cabbie",
+        "Stallion", "Rumpo", "RC Bandit", "Romero", "Packer", "Monster", "Admiral", "Squalo", "Seasparrow", "Pizzaboy", "Tram", "Trailer", "Turismo", "Speeder",
+        "Reefer", "Tropic", "Flatbed", "Yankee", "Caddy", "Solair", "Berkley's RC Van", "Skimmer", "PCJ-600", "Faggio", "Freeway", "RC Baron", "RC Raider",
+        "Glendale", "Oceanic", "Sanchez", "Sparrow", "Patriot", "Quad", "Coastguard", "Dinghy", "Hermes", "Sabre", "Rustler", "ZR-350", "Walton", "Regina",
+        "Comet", "BMX", "Burrito", "Camper", "Marquis", "Baggage", "Dozer", "Maverick", "News Chopper", "Rancher", "FBI Rancher", "Virgin", "Greenwood",
+        "Blista Compact", "NRG-500", "Mesa", "RC Goblin", "Hotring Racer", "Hotring Racer A", "Hotring Racer B", "Bloodring Banger", "Rancher", "Super GT",
+        "Elegant", "Journey", "Bike", "Mountain Bike", "Beagle", "Cropdust", "Stunt", "Tanker", "Roadtrain", "Nebula", "Majestic", "Buccaneer", "Shamal",
+        "Hydra", "FCR-900", "Chiron", "Savanna", "Bandito", "Freight", "Trailer", "Kart", "Mower", "Duneride", "Sweeper", "Broadway", "Tornado", "AT-400",
+        "DFT-300", "Huntley", "Stafford", "BF-400", "Newsvan", "Tug", "Trailer A", "Emperor", "Wayfarer", "Euros", "Hotdog", "Club", "Trailer B", "Trailer C",
+        "Andromada", "Dodo", "RC Cam", "Launch", "Police Car (LSPD)", "Police Car (SFPD)", "Police Car (LVPD)", "Police Ranger", "Picador", "S.W.A.T. Van",
+        "Alpha", "Phoenix", "Glendale", "Sadler", "Luggage Trailer A", "Luggage Trailer B", "Stair Trailer", "Boxville", "Farm Plow", "Utility Trailer"
+    };
+    if (model >= 400 && model <= 611) format(name, len, "%s", vehNames[model - 400]);
+    else format(name, len, "Unknown");
+}
 forward GiveFermaBush(playerid);
 public GiveFermaBush(playerid)
 {
-    // Размораживаем игрока
     TogglePlayerControllable(playerid, 1);
-
     TempJob[playerid][tFermaBagTaken] = true;
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы собрали куст, отнесите его на склад.");
     SetPlayerCheckpoint(playerid, FERMA_BAG_X, FERMA_BAG_Y, FERMA_BAG_Z, 2.0);
-
-    // Выдаем объект в левую руку
     SetPlayerAttachedObject(playerid, 2, 19473, 5, 0.15, 0.05, 0.0, -90.0, 0.0, 0.0);
-
-    // Применяем хак с анимацией CARRY.
-    // time = 1 (в конце) замораживает руки, но позволяет ногам бегать!
     ApplyAnimation(playerid, "CARRY", "crry_prtial", 4.1, 0, 1, 1, 1, 1, 1);
 }
 forward DelayedKick(playerid);
@@ -617,20 +845,6 @@ public DelayedKick(playerid)
     return 1;
 }
 forward PC_OnPlayerCommandReceived(playerid, cmd[], params[]);
-stock ResetPlayerJobInfo(playerid)
-{
-    TempJob[playerid][tJobGruz] = false;
-    TempJob[playerid][tGruzBagTaken] = false;
-    TempJob[playerid][tGruzSkin] = 0;
-
-    TempJob[playerid][tJobFerma] = false;
-    TempJob[playerid][tFermaBagTaken] = false;
-    TempJob[playerid][tFermaInstrument] = false;
-    TempJob[playerid][tFermaSkin] = 0;
-
-    TempJob[playerid][tJobSalary] = 0;
-}
-
 stock IsFractionVehicle(vehicleid, fractionid)
 {
     if (fractionid == FRACTION_GROVE)
@@ -686,10 +900,16 @@ forward ChangeColorEffect();
 public ChangeColorEffect()
 {
     new color = (random(256) << 24) | (random(256) << 16) | (random(256) << 8) | 0xFF;
-    TextDrawColor(LOGO, color);
+    TextDrawColor(SERVER_LOGO[0], color);
+    foreach(new i : Player)
+    {
+        if(IsPlayerLoggedIn[i])
+        {
+            TextDrawShowForPlayer(i, SERVER_LOGO[0]);
+        }
+    }
     return 1;
 }
-
 /////////////////// MYSQL И АВТОРИЗАЦИЯ ///////////////////
 forward find_table(playerid);
 public find_table(playerid)
@@ -705,7 +925,6 @@ public find_table(playerid)
     {
         IsPlayerRegistered[playerid] = true;
         SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт найден. Авторизуйтесь: /login <пароль>.");
-
         new player_name[MAX_PLAYER_NAME], query[256];
         GetPlayerName(playerid, player_name, sizeof(player_name));
         mysql_format(sampbd, query, sizeof(query), "SELECT * FROM `accounts` WHERE `name` = '%e' LIMIT 1", player_name);
@@ -727,19 +946,16 @@ stock bool:CheckLoginPassword(playerid)
     IsPlayerLoggedIn[playerid] = true;
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Авторизация прошла успешно.");
     LoginPassword[playerid][0] = '\0';
-
     GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
     SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
     SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
     SpawnPlayer(playerid);
     return true;
 }
-
 forward UploadPlayerAccount(playerid);
 public UploadPlayerAccount(playerid)
 {
     if (cache_num_rows() == 0) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Аккаунт не найден.");
-
     cache_get_value_name_int(0, "id", PlayerInfo[playerid][pID]);
     cache_get_value_name(0, "name", PlayerInfo[playerid][pName]);
     cache_get_value_name(0, "password_salt", PlayerInfo[playerid][pSalt]);
@@ -753,52 +969,60 @@ public UploadPlayerAccount(playerid)
     cache_get_value_name_int(0, "fskin", PlayerInfo[playerid][pfSkin]);
     cache_get_value_name_int(0, "frank", PlayerInfo[playerid][pFractionRank]);
     cache_get_value_name_int(0, "fleader", PlayerInfo[playerid][pFractionLeader]);
+    cache_get_value_name_int(0, "job_gruz_exp", PlayerInfo[playerid][pGruzExp]);
+    cache_get_value_name_int(0, "job_ferma_exp", PlayerInfo[playerid][pFermaExp]);
+    cache_get_value_name(0, "admin_salt", PlayerInfo[playerid][pAdminSalt]);
+    cache_get_value_name(0, "admin_hash", PlayerInfo[playerid][pAdminHash]);
     return CheckLoginPassword(playerid);
 }
-
 stock SaveAccount(playerid)
 {
-    new query[512];
+    new query[800];
     mysql_format(sampbd, query, sizeof(query),
-        "UPDATE `accounts` SET `password_salt` = '%e', `password_hash` = '%e', `money` = %d, `level` = %d, `exp` = %d, `skin` = %d, `admin` = %d, `fraction` = %d, `fskin` = %d, `frank` = %d, `fleader` = %d WHERE `name` = '%e'",
+        "UPDATE `accounts` SET `password_salt` = '%e', `password_hash` = '%e', `money` = %d, `level` = %d, `exp` = %d, `skin` = %d, `admin` = %d, `fraction` = %d, `fskin` = %d, `frank` = %d, `fleader` = %d, `job_gruz_exp` = %d, `job_ferma_exp` = %d, `admin_salt` = '%e', `admin_hash` = '%e' WHERE `name` = '%e'",
         PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
         PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP], PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pFraction], PlayerInfo[playerid][pfSkin],
-        PlayerInfo[playerid][pFractionRank], PlayerInfo[playerid][pFractionLeader], PlayerInfo[playerid][pName]);
-
+        PlayerInfo[playerid][pFractionRank], PlayerInfo[playerid][pFractionLeader], PlayerInfo[playerid][pGruzExp], PlayerInfo[playerid][pFermaExp],
+        PlayerInfo[playerid][pAdminSalt], PlayerInfo[playerid][pAdminHash], // Переменные админ-пароля
+        PlayerInfo[playerid][pName]);
     mysql_tquery(sampbd, query, "", "");
     return 1;
 }
-
 stock CreateNewAccount(playerid, password[])
 {
-    new salt[16], hash[65], query[512];
+    new salt[16], hash[65], query[800];
     format(salt, sizeof(salt), "salt_%d", playerid);
     SHA256_PassHash(password, salt, hash, sizeof(hash));
-
     strins(PlayerInfo[playerid][pSalt], salt, 0);
     strins(PlayerInfo[playerid][pPasswordHash], hash, 0);
-
     PlayerInfo[playerid][pLevel] = 1;
     PlayerInfo[playerid][pMoney] = 500;
     PlayerInfo[playerid][pAdmin] = 0;
     PlayerInfo[playerid][pSkin] = 230;
     PlayerInfo[playerid][pFraction] = 0;
-
+    PlayerInfo[playerid][pfSkin] = 0;
+    PlayerInfo[playerid][pFractionRank] = 0;
+    PlayerInfo[playerid][pFractionLeader] = 0;
+    PlayerInfo[playerid][pGruzExp] = 0;
+    PlayerInfo[playerid][pFermaExp] = 0;
+    PlayerInfo[playerid][pAdminSalt][0] = '\0';
+    PlayerInfo[playerid][pAdminHash][0] = '\0';
     mysql_format(sampbd, query, sizeof(query),
-        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`, `fraction`) VALUES ('%e', '%e', '%e', %d, %d, %d, %d, %d, %d)",
+        "INSERT INTO `accounts` (`name`, `password_salt`, `password_hash`, `money`, `level`, `exp`, `skin`, `admin`, `fraction`, `fskin`, `frank`, `fleader`, `job_gruz_exp`, `job_ferma_exp`, `admin_salt`, `admin_hash`) VALUES ('%e', '%e', '%e', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, '%e', '%e')",
         PlayerInfo[playerid][pName], PlayerInfo[playerid][pSalt], PlayerInfo[playerid][pPasswordHash],
         PlayerInfo[playerid][pMoney], PlayerInfo[playerid][pLevel], PlayerInfo[playerid][pEXP],
-        PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pFraction]);
-
+        PlayerInfo[playerid][pSkin], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][pFraction],
+        PlayerInfo[playerid][pfSkin], PlayerInfo[playerid][pFractionRank], PlayerInfo[playerid][pFractionLeader],
+        PlayerInfo[playerid][pGruzExp], PlayerInfo[playerid][pFermaExp],
+        PlayerInfo[playerid][pAdminSalt], PlayerInfo[playerid][pAdminHash]);
     mysql_tquery(sampbd, query, "", "");
-
     GivePlayerMoney(playerid, PlayerInfo[playerid][pMoney]);
     SetPlayerScore(playerid, PlayerInfo[playerid][pLevel]);
-    SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
-    SpawnPlayer(playerid);
+    ShowPlayerDialog(playerid, DIALOG_REGISTER_SKIN, DIALOG_STYLE_LIST, "{808000}Выбор начальной одежды",
+        "1. Бездомный (в белой майке)\n2. Бездомный (с коробкой на голове)\n3. Старый бездомный\n4. Бездомный (в шапке)",
+        "Выбрать", "");
     return 1;
 }
-
 ///////////////////// КОМАНДЫ /////////////////////
 
 CMD:register(playerid, params[])
@@ -807,10 +1031,8 @@ CMD:register(playerid, params[])
     if (strlen(params) == 0) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /register <пароль>");
     if (strlen(params) < 4) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Пароль должен содержать минимум 4 символа.");
     if (IsPlayerRegistered[playerid]) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} У вас уже есть аккаунт! /login <пароль>");
-
     GetPlayerName(playerid, PlayerInfo[playerid][pName], MAX_PLAYER_NAME);
     CreateNewAccount(playerid, params);
-
     IsPlayerRegistered[playerid] = true;
     IsPlayerLoggedIn[playerid] = true;
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Регистрация успешна.");
@@ -821,9 +1043,7 @@ CMD:login(playerid, params[])
 {
     if (IsPlayerLoggedIn[playerid]) return 1;
     if (strlen(params) == 0) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Используйте: /login <пароль>");
-
     format(LoginPassword[playerid], MAX_PASS_LENGTH + 1, "%s", params);
-
     new player_name[MAX_PLAYER_NAME], query[256];
     GetPlayerName(playerid, player_name, sizeof(player_name));
     mysql_format(sampbd, query, sizeof(query), "SELECT * FROM `accounts` WHERE `name` = '%e' LIMIT 1", player_name);
@@ -837,69 +1057,134 @@ CMD:killme(playerid)
 }
 CMD:tpcor(playerid, params[])
 {
+    if (PlayerInfo[playerid][pAdmin] < 1) return 1;
     new Float:x, Float:y, Float:z, Float:angle;
-    if (sscanf(params, "ffff", x, y, z, angle)) return SCM(playerid, 0xFFFF0000, "Использование: /tpcor [x] [y] [z] [angle]");
-
-    SetPlayerPos(playerid, x, y, z);
-    SetPlayerFacingAngle(playerid, angle);
-    SCM(playerid, 0xFFFFFFFF, "Телепорт выполнен.");
+    if (sscanf(params, "fffF(0.0)", x, y, z, angle)) return SCM(playerid, -1, "{808000}Использование:{FFFFFF} /tpcor [x] [y] [z] [angle (опционально)]");
+    SetPlayerInterior(playerid, 0);
+    SetPlayerVirtualWorld(playerid, 0);
+    if (IsPlayerInAnyVehicle(playerid) && GetPlayerState(playerid) == PLAYER_STATE_DRIVER)
+    {
+        new vehicleid = GetPlayerVehicleID(playerid);
+        SetVehiclePos(vehicleid, x, y, z);
+        SetVehicleZAngle(vehicleid, angle);
+        SetVehiclePos(vehicleid, x, y, z + 1.0);
+    }
+    else
+    {
+        SetPlayerPos(playerid, x, y, z);
+        SetPlayerFacingAngle(playerid, angle);
+    }
+    new string[128];
+    format(string, sizeof(string), "{808000}[TP]:{FFFFFF} Вы успешно телепортировались на координаты {00FF00}%.1f, %.1f, %.1f", x, y, z);
+    SCM(playerid, -1, string);
+    return 1;
+}
+CMD:engine(playerid, params[]) return ToggleVehicleEngine(playerid);
+CMD:jobskills(playerid, params[])
+{
+    new gruz_exp = PlayerInfo[playerid][pGruzExp];
+    new ferma_exp = PlayerInfo[playerid][pFermaExp];
+    new gruz_lvl = 1, ferma_lvl = 1;
+    new gruz_next = 300, ferma_next = 300;
+    if (gruz_exp >= 900) gruz_lvl = 3;
+    else if (gruz_exp >= 300) { gruz_lvl = 2; gruz_next = 900; }
+    if (ferma_exp >= 900) ferma_lvl = 3;
+    else if (ferma_exp >= 300) { ferma_lvl = 2; ferma_next = 900; }
+    new gruz_bar[128], ferma_bar[128], temp[32];
+    if (gruz_lvl == 3) format(gruz_bar, sizeof(gruz_bar), "{00FF00}[==========] {FFFFFF}MAX");
+    else
+    {
+        new filled = floatround((float(gruz_exp) / float(gruz_next)) * 10.0);
+        format(gruz_bar, sizeof(gruz_bar), "{00FF00}[");
+        for(new i = 0; i < filled; i++) strcat(gruz_bar, "=");
+        strcat(gruz_bar, "{555555}");
+        for(new i = filled; i < 10; i++) strcat(gruz_bar, "-");
+        format(temp, sizeof(temp), "{00FF00}] {FFFFFF}%d / %d", gruz_exp, gruz_next);
+        strcat(gruz_bar, temp);
+    }
+    if (ferma_lvl == 3) format(ferma_bar, sizeof(ferma_bar), "{00FF00}[==========] {FFFFFF}MAX");
+    else
+    {
+        new filled = floatround((float(ferma_exp) / float(ferma_next)) * 10.0);
+        format(ferma_bar, sizeof(ferma_bar), "{00FF00}[");
+        for(new i = 0; i < filled; i++) strcat(ferma_bar, "=");
+        strcat(ferma_bar, "{555555}");
+        for(new i = filled; i < 10; i++) strcat(ferma_bar, "-");
+        format(temp, sizeof(temp), "{00FF00}] {FFFFFF}%d / %d", ferma_exp, ferma_next);
+        strcat(ferma_bar, temp);
+    }
+    new dialog_text[700];
+    format(dialog_text, sizeof(dialog_text),
+        "{FFFFFF}Прогресс ваших рабочих навыков:\n\n\
+        {808000}Грузчик:{FFFFFF}\tУровень %d\n%s\n\n\
+        {808000}Фермер:{FFFFFF}\tУровень %d\n%s\n\n\
+        {666666}Информация по уровням:\n\
+        • 2 уровень (от 300 EXP) — оплата $75 за работу.\n\
+        • 3 уровень (от 900 EXP) — оплата $100 за работу.",
+        gruz_lvl, gruz_bar, ferma_lvl, ferma_bar);
+    ShowPlayerDialog(playerid, 4000, DIALOG_STYLE_MSGBOX, "{808000}Рабочие навыки", dialog_text, "Закрыть", "");
     return 1;
 }
 // =========================================================
 //                   АДМИН - СИСТЕМА
 // =========================================================
+CMD:alogin(playerid, params[])
+{
+    if (PlayerInfo[playerid][pAdmin] < 1) return 1;
+    if (AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Вы уже авторизованы в панели!");
+    if (PlayerInfo[playerid][pAdminHash][0] == EOS || PlayerInfo[playerid][pAdminHash][0] == '\0')
+    {
+        ShowPlayerDialog(playerid, DIALOG_ALOGIN_SET, DIALOG_STYLE_PASSWORD, "{808000}Безопасность",
+            "{FFFFFF}Придумайте секретный пароль администратора\n(минимум 4 символа):", "Сохранить", "Отмена");
+    }
+    else
+    {
+        ShowPlayerDialog(playerid, DIALOG_ALOGIN, DIALOG_STYLE_PASSWORD, "{808000}Админ-авторизация",
+            "{FFFFFF}Введите ваш секретный пароль администратора\nдля доступа к серверным командам:", "Войти", "Отмена");
+    }
+    return 1;
+}
+CMD:apanel(playerid, params[])
+{
+    if (PlayerInfo[playerid][pAdmin] < 1) return 1;
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin{FFFFFF}!");
+    new dialog_text[512];
+    format(dialog_text, sizeof(dialog_text),
+        "1. Узнать свой уровень администратора\n\
+         2. Телепорт в центр карты (0, 0, 0)\n\
+         3. Восстановить себе здоровье и броню\n\
+         4. Очистить чат\n\
+         5. Выдать себе 100.000$");
+    ShowPlayerDialog(playerid, DIALOG_APANEL, DIALOG_STYLE_LIST, "{808000}Панель администратора", dialog_text, "Выбрать", "Закрыть");
+    return 1;
+}
 CMD:veh(playerid, params[])
 {
-    // Проверка на админку (1 уровень и выше)
-    if (PlayerInfo[playerid][pAdmin] < 1)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
-
+    if (PlayerInfo[playerid][pAdmin] < 1) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin");
     new modelid, color1, color2;
-
-    // sscanf: d - обязательное число (модель), I(-1) - необязательное число (цвет), по умолчанию -1 (случайный)
-    if (sscanf(params, "dI(-1)I(-1)", modelid, color1, color2))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /veh [ID модели] [цвет 1] [цвет 2]");
-
-    if (modelid < 400 || modelid > 611)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неверный ID модели (от 400 до 611).");
-
+    if (sscanf(params, "dI(-1)I(-1)", modelid, color1, color2)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /veh [ID модели] [цвет 1] [цвет 2]");
+    if (modelid < 400 || modelid > 611) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неверный ID модели (от 400 до 611).");
     new Float:x, Float:y, Float:z, Float:a;
     GetPlayerPos(playerid, x, y, z);
     GetPlayerFacingAngle(playerid, a);
-
-    // Создаем транспорт. -1 в конце означает, что машина не будет респавниться сама по себе
     new vehicleid = CreateVehicle(modelid, x, y, z, a, color1, color2, -1);
-
-    if (vehicleid == INVALID_VEHICLE_ID)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Лимит транспорта на сервере превышен.");
-
-    // Синхронизируем виртуальный мир и интерьер транспорта с миром админа
+    if (vehicleid == INVALID_VEHICLE_ID) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Лимит транспорта на сервере превышен.");
     SetVehicleVirtualWorld(vehicleid, GetPlayerVirtualWorld(playerid));
     LinkVehicleToInterior(vehicleid, GetPlayerInterior(playerid));
-
-    // Сажаем админа сразу на водительское место (seatid = 0)
     PutPlayerInVehicle(playerid, vehicleid, 0);
-
     new msg[128];
     format(msg, sizeof(msg), "{808000}[SERVER]:{FFFFFF} Транспорт создан (ID: %d | Модель: %d).", vehicleid, modelid);
     SCM(playerid, -1, msg);
-
     return 1;
 }
 
 CMD:delveh(playerid, params[])
 {
-    // Проверка на админку
-    if (PlayerInfo[playerid][pAdmin] < 1)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
-
-    // Проверяем, сидит ли админ в машине
-    if (!IsPlayerInAnyVehicle(playerid))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы должны находиться в транспорте для его удаления.");
-
+    if (PlayerInfo[playerid][pAdmin] < 1) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin");
+    if (!IsPlayerInAnyVehicle(playerid)) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы должны находиться в транспорте для его удаления.");
     new vehicleid = GetPlayerVehicleID(playerid);
-
-    // Если это арендованный велосипед кого-то из игроков — очищаем его таймер и переменную
     foreach(new i : Player)
     {
         if (PlayerBike[i] == vehicleid)
@@ -913,37 +1198,24 @@ CMD:delveh(playerid, params[])
             break;
         }
     }
-
     DestroyVehicle(vehicleid);
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Транспорт успешно удален.");
-
     return 1;
 }
+
 CMD:makeadmin(playerid, params[])
 {
-    // Проверяем, авторизован ли игрок как RCON администратор
-    if (!IsPlayerAdmin(playerid))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} У вас нет прав для использования этой команды.");
-
+    if (!IsPlayerAdmin(playerid)) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Доступно только RCON-администраторам (/rcon login).");
     new targetid, level;
-    // sscanf "ud" означает: u - ID или ник игрока, d - целое число (уровень)
-    if (sscanf(params, "ud", targetid, level))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /makeadmin [ID игрока] [Уровень (0-5)]");
-
-    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid])
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден или не авторизован.");
-
-    if (level < 0 || level > 5)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Уровень администратора может быть от 0 до 5.");
-
-    // Выдаем уровень и сохраняем аккаунт игрока
+    if (sscanf(params, "ud", targetid, level)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /makeadmin [ID игрока] [Уровень (0-5)]");
+    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid]) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден или не авторизован.");
+    if (level < 0 || level > 5) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Уровень администратора может быть от 0 до 5.");
     PlayerInfo[targetid][pAdmin] = level;
+    if (level == 0) AdminLogged[targetid] = false;
     SaveAccount(targetid);
-
     new msg[144], adminName[MAX_PLAYER_NAME], targetName[MAX_PLAYER_NAME];
     GetPlayerName(playerid, adminName, sizeof(adminName));
     GetPlayerName(targetid, targetName, sizeof(targetName));
-
     if (level == 0)
     {
         format(msg, sizeof(msg), "{808000}[SERVER]:{FF0000} Администратор %s снял с вас права администратора.", adminName);
@@ -960,90 +1232,67 @@ CMD:makeadmin(playerid, params[])
     }
     return 1;
 }
-
 CMD:a(playerid, params[])
 {
-    if (PlayerInfo[playerid][pAdmin] < 1)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
-
-    if (isnull(params)) // isnull - макрос для проверки пустого текста
-        return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /a [текст]");
-
+    if (PlayerInfo[playerid][pAdmin] < 1) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin");
+    if (isnull(params)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /a [текст]");
     new msg[144], name[MAX_PLAYER_NAME];
     GetPlayerName(playerid, name, sizeof(name));
-    format(msg, sizeof(msg), "[A] [%d lvl] %s: {FFFFFF}%s", PlayerInfo[playerid][pAdmin], name, params);
-
-    // Отправляем сообщение только админам
+    format(msg, sizeof(msg), "{FFD700}[A] [%d lvl] %s: {FFFFFF}%s", PlayerInfo[playerid][pAdmin], name, params);
     foreach(new i : Player)
     {
-        if (IsPlayerLoggedIn[i] && PlayerInfo[i][pAdmin] >= 1)
+        if (IsPlayerLoggedIn[i] && PlayerInfo[i][pAdmin] >= 1 && AdminLogged[i])
         {
-            SCM(i, 0x00FF00FF, msg);
+            SCM(i, -1, msg);
         }
     }
     return 1;
 }
-
 CMD:goto(playerid, params[])
 {
-    if (PlayerInfo[playerid][pAdmin] < 1)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
-
+    if (PlayerInfo[playerid][pAdmin] < 1) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin");
     new targetid;
-    if (sscanf(params, "u", targetid))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /goto [ID игрока]");
-
-    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid])
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден или не авторизован.");
-
-    if (targetid == playerid)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете телепортироваться сами к себе.");
-
+    if (sscanf(params, "u", targetid)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /goto [ID игрока]");
+    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid]) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден или не авторизован.");
+    if (targetid == playerid) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете телепортироваться сами к себе.");
     new Float:x, Float:y, Float:z;
     GetPlayerPos(targetid, x, y, z);
-
-    // Синхронизируем виртуальный мир и интерьер
     SetPlayerVirtualWorld(playerid, GetPlayerVirtualWorld(targetid));
     SetPlayerInterior(playerid, GetPlayerInterior(targetid));
-
-    // Телепортируем чуть в сторону от игрока, чтобы не застрять в нём
-    SetPlayerPos(playerid, x + 1.0, y + 1.0, z);
+    if (IsPlayerInAnyVehicle(playerid) && GetPlayerState(playerid) == PLAYER_STATE_DRIVER)
+    {
+        new vehicleid = GetPlayerVehicleID(playerid);
+        SetVehiclePos(vehicleid, x + 2.0, y + 2.0, z + 1.0);
+    }
+    else
+    {
+        SetPlayerPos(playerid, x + 1.0, y + 1.0, z);
+    }
 
     new msg[128], targetName[MAX_PLAYER_NAME];
     GetPlayerName(targetid, targetName, sizeof(targetName));
     format(msg, sizeof(msg), "{808000}[SERVER]:{FFFFFF} Вы телепортировались к %s.", targetName);
     SCM(playerid, -1, msg);
-
     return 1;
 }
-
 CMD:kick(playerid, params[])
 {
-    if (PlayerInfo[playerid][pAdmin] < 1)
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
-
+    if (PlayerInfo[playerid][pAdmin] < 1) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Неизвестная команда.");
+    if (!AdminLogged[playerid]) return SCM(playerid, -1, "{808000}[Админ]:{FFFFFF} Сначала авторизуйтесь через {00FF00}/alogin");
     new targetid, reason[64];
-    if (sscanf(params, "us[64]", targetid, reason))
-        return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /kick [ID игрока] [Причина]");
-
-    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid])
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден.");
-
-    if (PlayerInfo[targetid][pAdmin] > PlayerInfo[playerid][pAdmin])
-        return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете кикнуть администратора выше вас рангом.");
-
+    if (sscanf(params, "us[64]", targetid, reason)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Использование: /kick [ID игрока] [Причина]");
+    if (!IsPlayerConnected(targetid) || !IsPlayerLoggedIn[targetid]) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Игрок не найден.");
+    if (PlayerInfo[targetid][pAdmin] > PlayerInfo[playerid][pAdmin]) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы не можете кикнуть администратора выше вас рангом.");
     new msg[144], adminName[MAX_PLAYER_NAME], targetName[MAX_PLAYER_NAME];
     GetPlayerName(playerid, adminName, sizeof(adminName));
     GetPlayerName(targetid, targetName, sizeof(targetName));
-
     format(msg, sizeof(msg), "{FF0000}Администратор %s кикнул игрока %s. Причина: %s", adminName, targetName, reason);
-    SendClientMessageToAll(-1, msg); // Отправляем всем на сервере
-
-    // Кикаем с задержкой 100 миллисекунд
+    SendClientMessageToAll(-1, msg);
     SetTimerEx("DelayedKick", 100, false, "i", targetid);
     return 1;
 }
-// ... Функция removeobj(playerid) остается как была ...
 ////////////////////////////////////////////////////
 stock removeobj(playerid)
 {

@@ -1,11 +1,11 @@
 -- phpMyAdmin SQL Dump
--- version 5.2.2deb1
+-- version 5.2.2deb1+deb13u1
 -- https://www.phpmyadmin.net/
 --
 -- Хост: localhost:3306
--- Время создания: Ноя 03 2025 г., 00:51
--- Версия сервера: 11.8.3-MariaDB-0+deb13u1 from Debian
--- Версия PHP: 8.4.11
+-- Время создания: Июн 04 2026 г., 14:23
+-- Версия сервера: 11.8.6-MariaDB-0+deb13u1 from Debian
+-- Версия PHP: 8.4.21
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -36,7 +36,15 @@ CREATE TABLE `accounts` (
   `level` int(11) NOT NULL DEFAULT 1,
   `exp` int(11) NOT NULL DEFAULT 0,
   `skin` int(2) NOT NULL,
-  `admin` int(2) NOT NULL
+  `admin` int(2) NOT NULL,
+  `fraction` int(2) NOT NULL,
+  `fskin` int(3) NOT NULL,
+  `frank` int(2) NOT NULL,
+  `fleader` int(1) NOT NULL,
+  `job_gruz_exp` int(11) NOT NULL DEFAULT 0,
+  `job_ferma_exp` int(11) NOT NULL DEFAULT 0,
+  `admin_salt` varchar(16) NOT NULL DEFAULT '',
+  `admin_hash` varchar(65) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
