@@ -53,6 +53,7 @@ new MySQL:sampbd;
 #define KEY_ENTER_VEHICLE 0x00000100
 
 #define DIALOG_REGISTER_SKIN 3004
+#define MAX_FUEL 50.0
 ///////////////////
 main() {}
 #pragma warning disable 239
@@ -98,7 +99,18 @@ enum pTempJobInfo
     tJobSalary
 }
 new TempJob[MAX_PLAYERS][pTempJobInfo];
+#define MAX_GAS_STATIONS 50
 
+enum e_GAS_STATIONS {
+    gID,
+    Float:gX,
+    Float:gY,
+    Float:gZ,
+    Text3D:gTextID
+}
+
+new GasInfo[MAX_GAS_STATIONS][e_GAS_STATIONS];
+new TotalGasStations = 0;
 new bool:IsPlayerLoggedIn[MAX_PLAYERS];
 new bool:IsPlayerRegistered[MAX_PLAYERS];
 
@@ -141,11 +153,12 @@ new PlayerText:Speedo_TD[MAX_PLAYERS];
 new speedoTimer;
 new PlayerText3D:JobLabel[MAX_PLAYERS] = {PlayerText3D:INVALID_3DTEXT_ID, ...};
 new bool:AdminLogged[MAX_PLAYERS];
+new Float:VehFuel[MAX_VEHICLES];
 ////////////////////
 public OnGameModeInit()
 {
     sampbd = mysql_connect(MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE);
-
+    mysql_tquery(sampbd, "SELECT * FROM `gas_stations`", "LoadGasStations", "");
     EnableStuntBonusForAll(0);
     DisableInteriorEnterExits();
 
@@ -199,7 +212,7 @@ public OnGameModeInit()
     TextDrawFont(SERVER_LOGO[1], 1);
     TextDrawSetProportional(SERVER_LOGO[1], 1);
     ManualVehicleEngineAndLights();
-    speedoTimer = SetTimer("UpdateSpeedometer", 250, true);
+    SetTimer("FuelSystemTimer", 1000, true); // Запускаем 1-секундный таймер навсегда
     return 1;
 }
 
@@ -235,7 +248,7 @@ public OnPlayerConnect(playerid)
     mysql_tquery(sampbd, query, "find_table", "i", playerid);
     SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Пожалуйста, зарегистрируйтесь (/register) или войдите (/login).");
     removeobj(playerid);
-    Speedo_TD[playerid] = CreatePlayerTextDraw(playerid, 510.000000, 420.000000, "0 km/h | Engine: OFF");
+	Speedo_TD[playerid] = CreatePlayerTextDraw(playerid, 510.000000, 420.000000, "~w~S: ~y~0 km/h ~w~   F: ~y~50 L ~w~    ~g~E");
     PlayerTextDrawLetterSize(playerid, Speedo_TD[playerid], 0.250000, 1.000000);
     PlayerTextDrawAlignment(playerid, Speedo_TD[playerid], 1);
     PlayerTextDrawColor(playerid, Speedo_TD[playerid], 0xFFFFFFFF);
@@ -645,7 +658,7 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
     {
         if (GetPlayerState(playerid) == PLAYER_STATE_DRIVER)
         {
-            ToggleVehicleEngine(playerid);
+            PC_EmulateCommand(playerid, "/engine");
             return 1;
         }
     }
@@ -695,9 +708,40 @@ public OnPlayerSpawn(playerid)
 }
 public OnPlayerStateChange(playerid, newstate, oldstate)
 {
+    // ==========================================
+    // 1. ПРОВЕРКИ ПРИ ПОСАДКЕ (ВОДИТЕЛЬ И ПАССАЖИР)
+    // ==========================================
+    if (newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER)
+    {
+        // Проверка на работу (сброс мешка/куста)
+        if (TempJob[playerid][tGruzBagTaken] || TempJob[playerid][tFermaBagTaken])
+        {
+            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вас уволили.{FF0000} Причина: Попытка сесть в транспорт с грузом/кустом.");
+            RemovePlayerAttachedObject(playerid, 2);
+            DisablePlayerCheckpoint(playerid);
+            SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
+            ResetPlayerJobInfo(playerid);
+            return 0;
+        }
+
+        // Проверка на фракционный транспорт
+        new vehicleid = GetPlayerVehicleID(playerid);
+        if (IsFractionVehicle(vehicleid, FRACTION_GROVE) && PlayerInfo[playerid][pFraction] != FRACTION_GROVE)
+        {
+            SCM(playerid, 0xFF0000FF, "Вы не можете садиться в эту машину, она принадлежит Grove Street.");
+            RemovePlayerFromVehicle(playerid);
+            return 0;
+        }
+    }
+
+    // ==========================================
+    // 2. ДЕЙСТВИЯ ТОЛЬКО ДЛЯ ВОДИТЕЛЯ
+    // ==========================================
     if (newstate == PLAYER_STATE_DRIVER)
     {
         new vehicleid = GetPlayerVehicleID(playerid);
+
+        // Защита аренды/личных велосипедов
         foreach(new i : Player)
         {
             if (i == playerid) continue;
@@ -707,45 +751,136 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
                 return 0;
             }
         }
-    }
-    if (newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER)
-    {
-        if (TempJob[playerid][tGruzBagTaken] || TempJob[playerid][tFermaBagTaken])
+
+        // Обновление и показ спидометра
+        new string[128];
+
+        if (IsBicycle(vehicleid))
         {
-            SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вас уволили.{FF0000} Причина: Попытка сесть в транспорт с кустом.");
-            RemovePlayerAttachedObject(playerid, 2);
-            DisablePlayerCheckpoint(playerid);
-            SetPlayerSkin(playerid, PlayerInfo[playerid][pSkin]);
-            ResetPlayerJobInfo(playerid);
-            return 0;
-        }
-        new vehicleid = GetPlayerVehicleID(playerid);
-        if (IsFractionVehicle(vehicleid, FRACTION_GROVE) && PlayerInfo[playerid][pFraction] != FRACTION_GROVE)
-        {
-            SCM(playerid, 0xFF0000FF, "Вы не можете садиться в эту машину, она принадлежит Grove Street.");
-            RemovePlayerFromVehicle(playerid);
-            return 0;
-        }
-    }
-    if (newstate == PLAYER_STATE_DRIVER)
-    {
-        new vehicleid = GetPlayerVehicleID(playerid);
-        new model = GetVehicleModel(vehicleid);
-        if (model == 509 || model == 481 || model == 510)
-        {
+            // Автоматически "заводим" велосипед, чтобы можно было ехать
             new engine, lights, alarm, doors, bonnet, boot, objective;
             GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
             SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_ON, lights, alarm, doors, bonnet, boot, objective);
+
+            // Текст спидометра только со скоростью
+            format(string, sizeof(string), "~w~S: ~y~0 km/h");
         }
+        else
+        {
+            // Получаем статус двигателя авто
+            new engine, lights, alarm, doors, bonnet, boot, objective;
+            GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+
+            // Цвет буквы E (Зеленый или Красный)
+            new e_color[8];
+            if (engine == 1) format(e_color, sizeof(e_color), "~g~");
+            else format(e_color, sizeof(e_color), "~r~");
+
+            // Полный текст спидометра: Скорость | Бензин | Двигатель
+            format(string, sizeof(string), "~w~S: ~y~0 km/h ~w~    F: ~y~%d L ~w~    %sE", floatround(VehFuel[vehicleid]), e_color);
+        }
+
+        // Устанавливаем текст и показываем
+        PlayerTextDrawSetString(playerid, Speedo_TD[playerid], string);
         PlayerTextDrawShow(playerid, Speedo_TD[playerid]);
     }
-    if (oldstate == PLAYER_STATE_DRIVER)
+    // ==========================================
+    // 3. ДЕЙСТВИЯ ПРИ ВЫХОДЕ ИЗ АВТО
+    // ==========================================
+    else if (oldstate == PLAYER_STATE_DRIVER)
     {
+        // Прячем спидометр
         PlayerTextDrawHide(playerid, Speedo_TD[playerid]);
     }
+
     return 1;
 }
 ///////////////////// СТОКИ И ФУНКЦИИ /////////////////////
+forward FuelSystemTimer();
+public FuelSystemTimer()
+{
+    for(new i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (IsPlayerConnected(i) && GetPlayerState(i) == PLAYER_STATE_DRIVER)
+        {
+            new vehicleid = GetPlayerVehicleID(i);
+            new string[128];
+
+            if (IsBicycle(vehicleid))
+            {
+                format(string, sizeof(string), "~w~S: ~y~%d km/h", GetVehicleSpeed(vehicleid));
+                PlayerTextDrawSetString(i, Speedo_TD[i], string);
+                continue;
+            }
+
+            new engine, lights, alarm, doors, bonnet, boot, objective;
+            GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+
+            if (engine == 1)
+            {
+                VehFuel[vehicleid] -= 0.05; // Расход топлива (настраивай под себя)
+
+                if (VehFuel[vehicleid] <= 0.0)
+                {
+                    VehFuel[vehicleid] = 0.0;
+                    SetVehicleParamsEx(vehicleid, 0, lights, alarm, doors, bonnet, boot, objective);
+                    engine = 0;
+                    SCM(i, -1, "{808000}[Транспорт]:{FF0000} Топливо закончилось! Двигатель заглох.");
+                }
+            }
+
+            new e_color[8];
+            if (engine == 1) format(e_color, sizeof(e_color), "~g~");
+            else format(e_color, sizeof(e_color), "~r~");
+
+            format(string, sizeof(string), "~w~S: ~y~%d km/h ~w~     F: ~y~%d L ~w~    %sE",
+                GetVehicleSpeed(vehicleid), floatround(VehFuel[vehicleid]), e_color);
+
+            PlayerTextDrawSetString(i, Speedo_TD[i], string);
+        }
+    }
+    return 1;
+}
+forward IsBicycle(vehicleid);
+stock IsBicycle(vehicleid)
+{
+    new model = GetVehicleModel(vehicleid);
+    // 481 - BMX, 509 - Bike, 510 - Mountain Bike
+    if (model == 481 || model == 509 || model == 510) return 1;
+    return 0;
+}
+stock IsAtGasStation(playerid)
+{
+    for (new i = 0; i < TotalGasStations; i++) // Используем TotalGasStations вместо sizeof
+    {
+        if (IsPlayerInRangeOfPoint(playerid, 10.0, GasInfo[i][gX], GasInfo[i][gY], GasInfo[i][gZ]))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+forward LoadGasStations();
+public LoadGasStations()
+{
+    new rows = cache_num_rows();
+    if (!rows) return print("[Система АЗС]: В базе данных нет ни одной заправки.");
+    for(new i = 0; i < rows; i++)
+    {
+        if (i >= MAX_GAS_STATIONS) break;
+        cache_get_value_name_int(i, "id", GasInfo[i][gID]);
+        cache_get_value_name_float(i, "pos_x", GasInfo[i][gX]);
+        cache_get_value_name_float(i, "pos_y", GasInfo[i][gY]);
+        cache_get_value_name_float(i, "pos_z", GasInfo[i][gZ]);
+        GasInfo[i][gTextID] = Create3DTextLabel("{FFD700}[АЗС]\n{FFFFFF}Используйте {00FF00}/fill\n{FFFFFF}Цена: $2 / литр",
+            0xFFFFFFFF, GasInfo[i][gX], GasInfo[i][gY], GasInfo[i][gZ] + 1.0, 15.0, 0, 1);
+
+        TotalGasStations++;
+    }
+
+    printf("[Система АЗС]: Успешно загружено %d заправок из БД.", TotalGasStations);
+    return 1;
+}
 forward DeleteJobLabel(playerid);
 public DeleteJobLabel(playerid)
 {
@@ -766,46 +901,6 @@ stock ResetPlayerJobInfo(playerid)
     TempJob[playerid][tFermaInstrument] = false;
     TempJob[playerid][tFermaSkin] = 0;
     TempJob[playerid][tJobSalary] = 0;
-}
-stock ToggleVehicleEngine(playerid)
-{
-    if (GetPlayerState(playerid) != PLAYER_STATE_DRIVER) return SCM(playerid, -1, "{808000}[SERVER]:{FF0000} Вы должны находиться на месте водителя.");
-    new vehicleid = GetPlayerVehicleID(playerid);
-    new model = GetVehicleModel(vehicleid);
-    if (model == 509 || model == 481 || model == 510) return 1;
-    new engine, lights, alarm, doors, bonnet, boot, objective;
-    GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
-    if (engine == VEHICLE_PARAMS_ON)
-    {
-        SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_OFF, lights, alarm, doors, bonnet, boot, objective);
-        SCM(playerid, -1, "{808000}[VEHICLE]:{FFFFFF} Двигатель заглох.");
-    }
-    else
-    {
-        SetVehicleParamsEx(vehicleid, VEHICLE_PARAMS_ON, lights, alarm, doors, bonnet, boot, objective);
-        SCM(playerid, -1, "{808000}[VEHICLE]:{00FF00} Двигатель успешно заведен.");
-    }
-    return 1;
-}
-forward UpdateSpeedometer();
-public UpdateSpeedometer()
-{
-    new Float:vx, Float:vy, Float:vz, speed, vehicleid;
-    new engine, lights, alarm, doors, bonnet, boot, objective;
-    new td_info[64];
-    foreach(new i : Player)
-    {
-        if (IsPlayerLoggedIn[i] && GetPlayerState(i) == PLAYER_STATE_DRIVER)
-        {
-            vehicleid = GetPlayerVehicleID(i);
-            GetVehicleVelocity(vehicleid, vx, vy, vz);
-            speed = floatround(floatsqroot(vx*vx + vy*vy + vz*vz) * 175.0);
-            GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
-            format(td_info, sizeof(td_info), "~w~%d ~g~km/h ~w~| Engine: %s", speed, (engine == VEHICLE_PARAMS_ON) ? ("~g~ON") : ("~r~OFF"));
-            PlayerTextDrawSetString(i, Speedo_TD[i], td_info);
-        }
-    }
-    return 1;
 }
 stock GetVehicleName(vehicleid, name[], len)
 {
@@ -909,6 +1004,28 @@ public ChangeColorEffect()
         }
     }
     return 1;
+}
+forward OnGasStationAdd(playerid, Float:x, Float:y, Float:z);
+public OnGasStationAdd(playerid, Float:x, Float:y, Float:z)
+{
+    new i = TotalGasStations;
+    GasInfo[i][gID] = cache_insert_id();
+    GasInfo[i][gX] = x;
+    GasInfo[i][gY] = y;
+    GasInfo[i][gZ] = z;
+    GasInfo[i][gTextID] = Create3DTextLabel("{FFD700}[АЗС]\n{FFFFFF}Используйте {00FF00}/fill\n{FFFFFF}Цена: $2 / литр",
+        0xFFFFFFFF, x, y, z + 1.0, 15.0, 0, 1);
+    TotalGasStations++;
+    new string[128];
+    format(string, sizeof(string), "{808000}[Система АЗС]:{00FF00} Новая колонка успешно создана (ID в базе: %d).", GasInfo[i][gID]);
+    SCM(playerid, -1, string);
+    return 1;
+}
+stock GetVehicleSpeed(vehicleid)
+{
+    new Float:x, Float:y, Float:z;
+    GetVehicleVelocity(vehicleid, x, y, z);
+    return floatround(VectorSize(x, y, z) * 180.0);
 }
 /////////////////// MYSQL И АВТОРИЗАЦИЯ ///////////////////
 forward find_table(playerid);
@@ -1024,7 +1141,6 @@ stock CreateNewAccount(playerid, password[])
     return 1;
 }
 ///////////////////// КОМАНДЫ /////////////////////
-
 CMD:register(playerid, params[])
 {
     if (IsPlayerLoggedIn[playerid]) return 1;
@@ -1079,7 +1195,32 @@ CMD:tpcor(playerid, params[])
     SCM(playerid, -1, string);
     return 1;
 }
-CMD:engine(playerid, params[]) return ToggleVehicleEngine(playerid);
+CMD:engine(playerid, params[])
+{
+    if (!IsPlayerInAnyVehicle(playerid)) return 1;
+    if (GetPlayerState(playerid) != PLAYER_STATE_DRIVER) return 1;
+
+    new vehicleid = GetPlayerVehicleID(playerid);
+    if (IsBicycle(vehicleid)) return SCM(playerid, -1, "{808000}[Транспорт]:{FFFFFF} У велосипеда нет двигателя!");
+
+    // Если бензина 0 - не даем завестись
+    if (VehFuel[vehicleid] <= 0.0) return SCM(playerid, -1, "{808000}[Транспорт]:{FF0000} Бак пуст! Двигатель не заводится.");
+
+    new engine, lights, alarm, doors, bonnet, boot, objective;
+    GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+
+    if (engine == 0) // Если заглушен - заводим
+    {
+        SetVehicleParamsEx(vehicleid, 1, lights, alarm, doors, bonnet, boot, objective);
+        SCM(playerid, -1, "{808000}[Транспорт]:{FFFFFF} Двигатель {00FF00}заведен{FFFFFF}.");
+    }
+    else // Если заведен - глушим
+    {
+        SetVehicleParamsEx(vehicleid, 0, lights, alarm, doors, bonnet, boot, objective);
+        SCM(playerid, -1, "{808000}[Транспорт]:{FFFFFF} Двигатель {FF0000}заглушен{FFFFFF}.");
+    }
+    return 1;
+}
 CMD:jobskills(playerid, params[])
 {
     new gruz_exp = PlayerInfo[playerid][pGruzExp];
@@ -1125,9 +1266,64 @@ CMD:jobskills(playerid, params[])
     ShowPlayerDialog(playerid, 4000, DIALOG_STYLE_MSGBOX, "{808000}Рабочие навыки", dialog_text, "Закрыть", "");
     return 1;
 }
+CMD:fill(playerid, params[])
+{
+    if (!IsPlayerInAnyVehicle(playerid)) return SCM(playerid, -1, "{808000}[АЗС]:{FFFFFF} Вы должны находиться в транспорте.");
+    if (GetPlayerState(playerid) != PLAYER_STATE_DRIVER) return SCM(playerid, -1, "{808000}[АЗС]:{FFFFFF} Заправлять авто может только водитель!");
+    if (!IsAtGasStation(playerid)) return SCM(playerid, -1, "{808000}[АЗС]:{FFFFFF} Вы находитесь слишком далеко от бензоколонки.");
+    new vehicleid = GetPlayerVehicleID(playerid);
+    if (IsBicycle(vehicleid)) return SCM(playerid, -1, "{808000}[АЗС]:{FFFFFF} Велосипеды заправлять не нужно!");
+    new engine, lights, alarm, doors, bonnet, boot, objective;
+    GetVehicleParamsEx(vehicleid, engine, lights, alarm, doors, bonnet, boot, objective);
+    if (engine == 1) return SCM(playerid, -1, "{808000}[АЗС]:{FF0000} Заглушите двигатель перед заправкой (/engine)!");
+    new Float:needed_fuel = MAX_FUEL - VehFuel[vehicleid];
+    if (needed_fuel <= 1.0) return SCM(playerid, -1, "{808000}[АЗС]:{FFFFFF} Бак вашего транспорта уже полон!");
+    new price_per_liter = 2;
+    new total_cost = floatround(needed_fuel * price_per_liter);
+    if (PlayerInfo[playerid][pMoney] < total_cost)
+    {
+        new string[128];
+        format(string, sizeof(string), "{808000}[АЗС]:{FF0000} У вас нет денег на полный бак! Нужно: $%d", total_cost);
+        return SCM(playerid, -1, string);
+    }
+    PlayerInfo[playerid][pMoney] -= total_cost;
+    GivePlayerMoney(playerid, -total_cost);
+    VehFuel[vehicleid] = MAX_FUEL;
+    new string[128];
+    format(string, sizeof(string), "{808000}[АЗС]:{FFFFFF} Транспорт заправлен до полного бака на {00FF00}%d л.{FFFFFF} Оплачено: {00FF00}$%d", floatround(needed_fuel), total_cost);
+    SCM(playerid, -1, string);
+    return 1;
+}
 // =========================================================
 //                   АДМИН - СИСТЕМА
 // =========================================================
+CMD:setfuel(playerid, params[])
+{
+    if (PlayerInfo[playerid][pAdmin] < 1 || !AdminLogged[playerid]) return 1;
+    if (!IsPlayerInAnyVehicle(playerid)) return SCM(playerid, -1, "{808000}[SERVER]:{FFFFFF} Вы должны быть в транспорте.");
+
+    new Float:amount;
+    if (sscanf(params, "f", amount)) return SCM(playerid, -1, "{808000}Использование:{FFFFFF} /setfuel [кол-во литров]");
+
+    new vehicleid = GetPlayerVehicleID(playerid);
+    VehFuel[vehicleid] = amount;
+
+    new string[128];
+    format(string, sizeof(string), "{808000}[Админ]:{FFFFFF} Уровень бензина в этом авто установлен на {00FF00}%.1f L", amount);
+    SCM(playerid, -1, string);
+    return 1;
+}
+CMD:addgas(playerid, params[])
+{
+    if (PlayerInfo[playerid][pAdmin] < 5 || !AdminLogged[playerid]) return 1;
+    if (TotalGasStations >= MAX_GAS_STATIONS) return SCM(playerid, -1, "{808000}[Ошибка]:{FFFFFF} Достигнут лимит АЗС на сервере.");
+    new Float:x, Float:y, Float:z;
+    GetPlayerPos(playerid, x, y, z);
+    new query[256];
+    mysql_format(sampbd, query, sizeof(query), "INSERT INTO `gas_stations` (`pos_x`, `pos_y`, `pos_z`) VALUES ('%f', '%f', '%f')", x, y, z);
+    mysql_tquery(sampbd, query, "OnGasStationAdd", "ifff", playerid, x, y, z);
+    return 1;
+}
 CMD:alogin(playerid, params[])
 {
     if (PlayerInfo[playerid][pAdmin] < 1) return 1;
